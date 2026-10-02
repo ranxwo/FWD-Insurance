@@ -34,6 +34,7 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
 function toast(msg, ms = 2600) {
+  document.querySelectorAll(".toast").forEach(x => x.remove()); // แสดงทีละข้อความ
   const t = document.createElement("div");
   t.className = "toast"; t.setAttribute("role", "status"); t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), ms);
@@ -45,7 +46,7 @@ function avatar(p, size = "") {
 function statusBadge(s) {
   const map = {
     "มีผลบังคับ": "b-ok", "พร้อมดูแล": "b-ok", "ชำระแล้ว": "b-ok", "อนุมัติ": "b-ok", "ตอบแล้ว": "b-ok", "ปิดเรื่อง": "b-ok",
-    "รอชำระ": "b-warn", "รอพิจารณา": "b-warn", "รอเอกสาร": "b-warn", "รอตอบ": "b-warn", "ลูกค้ามุ่งหวัง": "b-info",
+    "รอชำระ": "b-warn", "รออนุมัติ": "b-warn", "ยกเลิก": "b-bad", "รอพิจารณา": "b-warn", "รอเอกสาร": "b-warn", "รอตอบ": "b-warn", "ลูกค้ามุ่งหวัง": "b-info",
     "ขาดอายุ": "b-bad", "ไม่อนุมัติ": "b-bad", "เลยกำหนด": "b-bad"
   };
   return `<span class="badge ${map[s] || "b-info"}">${esc(s)}</span>`;
@@ -62,6 +63,28 @@ const isManager = (role) => role === "หัวหน้าทีม" || role ==
 const isAdmin = (role) => role === "Admin";
 const roleLabel = (role) => isAdmin(role) ? "Admin (ผู้ดูแลเว็บ)" : (role || "");
 const publicAgents = (list) => (list || []).filter(a => !isAdmin(a.role));
+/* ข้อมูลลูกค้าและกรมธรรม์ */
+const GENDERS = ["ชาย", "หญิง", "ไม่ระบุ"];
+const MODES = ["รายเดือน", "ราย 3 เดือน", "ราย 6 เดือน", "รายปี"];
+const MODE_MONTHS = { "รายเดือน": 1, "ราย 3 เดือน": 3, "ราย 6 เดือน": 6, "รายปี": 12 };
+const POLICY_STATUS = ["รออนุมัติ", "มีผลบังคับ", "รอชำระ", "ขาดอายุ", "ยกเลิก"];
+const CLAIM_TYPES = ["ผู้ป่วยใน", "ผู้ป่วยนอก", "อุบัติเหตุ", "โรคร้ายแรง", "เสียชีวิต", "อื่นๆ"];
+const CLAIM_STATUS = ["รอเอกสาร", "รอพิจารณา", "อนุมัติ", "ไม่อนุมัติ"];
+const PAY_CHANNELS = ["แอปหรือเว็บไซต์บริษัท", "หักบัญชีอัตโนมัติ", "บัตรเครดิต", "เคาน์เตอร์ธนาคาร/เซอร์วิส", "อื่นๆ"];
+const annualPremium = (p) => Number(p.premium || 0) * (12 / (MODE_MONTHS[p.mode] || 12));
+const ageFrom = (b) => {
+  if (!b) return null; const d = new Date(b); if (isNaN(d)) return null;
+  const n = new Date(); let a = n.getFullYear() - d.getFullYear();
+  if (n.getMonth() < d.getMonth() || (n.getMonth() === d.getMonth() && n.getDate() < d.getDate())) a--;
+  return a >= 0 && a < 130 ? a : null;
+};
+const addMonths = (iso, m) => { // บวกเดือนแบบไม่ล้นวันสิ้นเดือน เช่น 31 ม.ค. + 1 เดือน = 28/29 ก.พ.
+  let [y, mo, d] = String(iso).slice(0, 10).split("-").map(Number); if (!y) return "";
+  mo += m; y += Math.floor((mo - 1) / 12); mo = ((mo - 1) % 12 + 12) % 12 + 1;
+  d = Math.min(d, new Date(Date.UTC(y, mo, 0)).getUTCDate());
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+};
+const options = (list, cur, blank) => (blank ? `<option value="">${blank}</option>` : "") + list.map(v => `<option ${v === cur ? "selected" : ""}>${esc(v)}</option>`).join("");
 const lineShare = (text) => "https://line.me/R/msg/text/?" + encodeURIComponent(text);
 
 /* =========================================================
@@ -82,15 +105,15 @@ const DEMO = {
       bio: "", specialties: [], password: "agent123" }
   ],
   customers: [
-    { id: "C001", name: "คุณมานี มีสุข", phone: "0890000001", type: "ลูกค้า", agent_id: "A02", line_group_url: "https://line.me/R/ti/g/xxxx", birthday: "1985-03-12", photo_url: "", note: "ชอบให้ติดต่อทาง LINE", password: "1234" },
+    { id: "C001", name: "คุณมานี มีสุข", phone: "0890000001", type: "ลูกค้า", agent_id: "A02", line_group_url: "https://line.me/R/ti/g/xxxx", birthday: "1985-03-12", gender: "หญิง", occupation: "พนักงานบริษัท", monthly_income: 45000, photo_url: "", note: "ชอบให้ติดต่อทาง LINE", password: "1234" },
     { id: "C002", name: "คุณปิติ รุ่งเรือง", phone: "0890000002", type: "ลูกค้า", agent_id: "A02", line_group_url: "", birthday: "1979-11-02", photo_url: "", note: "", password: "1234" },
     { id: "C003", name: "คุณชูใจ สดใส", phone: "0890000003", type: "ลูกค้า", agent_id: "A03", line_group_url: "", birthday: "1992-07-21", photo_url: "", note: "สนใจเพิ่มประกันสุขภาพ", password: "1234" },
-    { id: "C004", name: "คุณวีระ กล้าหาญ", phone: "0890000004", type: "ลูกค้ามุ่งหวัง", agent_id: "A03", line_group_url: "", birthday: "", photo_url: "", note: "นัดคุยแผนเกษียณสัปดาห์หน้า", password: "" },
+    { id: "C004", name: "คุณวีระ กล้าหาญ", phone: "0890000004", type: "ลูกค้ามุ่งหวัง", agent_id: "A03", line_group_url: "", birthday: "1978-06-05", gender: "ชาย", occupation: "เจ้าของกิจการ", monthly_income: 80000, photo_url: "", note: "นัดคุยแผนเกษียณสัปดาห์หน้า", password: "" },
     { id: "C005", name: "คุณดวงใจ อิ่มเอม", phone: "0890000005", type: "ลูกค้ามุ่งหวัง", agent_id: "A04", line_group_url: "", birthday: "", photo_url: "", note: "มีลูก 2 คน สนใจประกันเด็ก", password: "" },
     { id: "C006", name: "คุณสมชาย ทองดี", phone: "0890000006", type: "ลูกค้า", agent_id: "A01", line_group_url: "", birthday: "1970-01-30", photo_url: "", note: "", password: "1234" }
   ],
   policies: [
-    { policy_no: "P-10001", customer_id: "C001", plan: "ประกันสุขภาพเหมาจ่าย", sum_assured: 5000000, premium: 28500, mode: "รายปี", start_date: "2022-05-01", next_due: isoIn(9), status: "มีผลบังคับ" },
+    { policy_no: "P-10001", customer_id: "C001", plan: "ประกันสุขภาพเหมาจ่าย", sum_assured: 5000000, premium: 28500, mode: "รายปี", start_date: "2022-05-01", next_due: isoIn(9), status: "มีผลบังคับ", payment_years: 99, coverage_end: "2084-05-01", beneficiary: "นายมานะ มีสุข (สามี)", riders: "ค่ารักษาผู้ป่วยนอก", sold_by: "A02", note: "" },
     { policy_no: "P-10002", customer_id: "C001", plan: "ประกันชีวิตสะสมทรัพย์ 15 ปี", sum_assured: 1000000, premium: 6200, mode: "รายเดือน", start_date: "2023-01-15", next_due: isoIn(21), status: "มีผลบังคับ" },
     { policy_no: "P-10003", customer_id: "C002", plan: "ประกันโรคร้ายแรง", sum_assured: 2000000, premium: 15400, mode: "รายปี", start_date: "2021-08-10", next_due: isoIn(-3), status: "รอชำระ" },
     { policy_no: "P-10004", customer_id: "C003", plan: "ประกันชีวิตลดหย่อนภาษี", sum_assured: 800000, premium: 32000, mode: "รายปี", start_date: "2024-02-01", next_due: isoIn(120), status: "มีผลบังคับ" },
@@ -207,6 +230,7 @@ const DemoApi = {
       me: (({ password, ...x }) => x)(me), leader, customers, policies,
       tickets: DEMO.tickets.filter(t => cids.includes(t.customer_id)),
       claims: DEMO.claims.filter(c => policies.some(p => p.policy_no === c.policy_no)),
+      payments: DEMO.payments.filter(x => policies.some(p => p.policy_no === x.policy_no)),
       agents: DEMO.agents.map(({ password, ...a }) => ({ ...a, has_password: !!password }))
     };
   },
@@ -220,11 +244,31 @@ const DemoApi = {
   updateTicket({ id, status }) {
     const t = DEMO.tickets.find(x => x.id === id); if (t) t.status = status; return { ok: true };
   },
-  addLead({ token, name, phone, note }) {
+  addLead({ token, lead }) {
     const agent_id = token.replace("demo-", "");
-    const c = { id: "C" + Date.now(), name, phone, type: "ลูกค้ามุ่งหวัง", agent_id, note, line_group_url: "", birthday: "", photo_url: "", password: "" };
-    DEMO.customers.push(c); return { ok: true };
+    const c = { ...lead, id: "C" + Date.now(), type: "ลูกค้ามุ่งหวัง", agent_id, line_group_url: "", photo_url: "", password: "" };
+    DEMO.customers.push(c); const { password, ...out } = c; return { ok: true, customer: out };
   },
+  updateCustomer({ id, patch, password_hash }) {
+    const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) c.password = "demo";
+    return { ok: true };
+  },
+  addPolicy({ policy }) {
+    if (DEMO.policies.some(p => p.policy_no === policy.policy_no)) throw new Error("เลขกรมธรรม์ " + policy.policy_no + " มีอยู่แล้ว");
+    const c = DEMO.customers.find(x => x.id === policy.customer_id);
+    const pol = { ...policy, sold_by: c.agent_id }; DEMO.policies.push(pol);
+    const converted = c.type !== "ลูกค้า"; c.type = "ลูกค้า";
+    return { ok: true, policy: pol, converted };
+  },
+  updatePolicy({ policy_no, patch }) { Object.assign(DEMO.policies.find(p => p.policy_no === policy_no), patch); return { ok: true }; },
+  recordPayment({ policy_no, date, amount, channel }) {
+    const p = DEMO.policies.find(x => x.policy_no === policy_no);
+    const payment = { id: "PM" + Date.now(), policy_no, date, amount, channel, status: "ชำระแล้ว" }; DEMO.payments.unshift(payment);
+    p.next_due = addMonths(p.next_due || date, MODE_MONTHS[p.mode] || 12); if (p.status === "รอชำระ") p.status = "มีผลบังคับ";
+    return { ok: true, payment, next_due: p.next_due, status: p.status };
+  },
+  addClaim({ claim }) { const c = { ...claim, id: "CL" + Date.now(), status: claim.status || "รอเอกสาร" }; DEMO.claims.unshift(c); return { ok: true, claim: c }; },
+  updateClaim({ id, patch }) { Object.assign(DEMO.claims.find(c => c.id === id), patch); return { ok: true }; },
   addAgent({ token, agent, password_hash }) {
     const me = DEMO.agents.find(a => a.id === token.replace("demo-", ""));
     if (!me || !isManager(me.role)) throw new Error("เฉพาะหัวหน้าทีมหรือ Admin เท่านั้นที่เพิ่มตัวแทนได้");
@@ -545,7 +589,7 @@ function portalTab(tab, d, upcoming) {
   if (tab === "policies") {
     return `<div class="panel"><h3>กรมธรรม์ของคุณ</h3><div class="table-wrap"><table>
       <thead><tr><th>เลขกรมธรรม์</th><th>แบบประกัน</th><th class="num">ทุนประกัน</th><th class="num">เบี้ย</th><th>งวด</th><th>เริ่มคุ้มครอง</th><th>สถานะ</th></tr></thead>
-      <tbody>${d.policies.map(p => `<tr><td>${esc(p.policy_no)}</td><td>${esc(p.plan)}</td><td class="num">${baht(p.sum_assured)}</td><td class="num">${baht(p.premium)}</td><td>${esc(p.mode)}</td><td>${thDate(p.start_date)}</td><td>${statusBadge(p.status)}</td></tr>`).join("") || `<tr><td colspan="7">ยังไม่มีกรมธรรม์ในระบบ</td></tr>`}</tbody>
+      <tbody>${d.policies.map(p => `<tr><td>${esc(p.policy_no)}</td><td>${esc(p.plan)}${p.riders ? `<br><span class="small muted">สัญญาเพิ่มเติม: ${esc(p.riders)}</span>` : ""}${p.beneficiary ? `<br><span class="small muted">ผู้รับผลประโยชน์: ${esc(p.beneficiary)}</span>` : ""}${p.coverage_end ? `<br><span class="small muted">คุ้มครองถึง ${thDate(p.coverage_end)}</span>` : ""}</td><td class="num">${baht(p.sum_assured)}</td><td class="num">${baht(p.premium)}</td><td>${esc(p.mode)}</td><td>${thDate(p.start_date)}</td><td>${statusBadge(p.status)}</td></tr>`).join("") || `<tr><td colspan="7">ยังไม่มีกรมธรรม์ในระบบ</td></tr>`}</tbody>
     </table></div><p class="small muted" style="margin-top:12px">ต้องการสำเนากรมธรรม์ ส่งคำขอในแท็บ "สอบถาม/แจ้งปัญหา" ตัวแทนจะส่งให้ทาง LINE</p></div>`;
   }
   if (tab === "pay") {
@@ -583,6 +627,9 @@ async function renderDashboard() {
   const full = await Api.call("agentData", { token: State.session.token });
   let tab = "today", filter = "ทั้งหมด", q = "", editId = null;
   let agentFilter = { text: "", role: "", onlyInc: false }; // จำคำค้นหาไว้ระหว่างแก้ไขข้อมูล
+  // หน้ารายละเอียดลูกค้า: custId = ลูกค้าที่เปิดอยู่, form = ฟอร์มที่เปิดอยู่ ("policy" | "pay" | "claim"), formKey = เลขกรมธรรม์ที่แก้/ชำระ
+  let custId = null, form = null, formKey = null;
+  if (!full.payments) full.payments = [];
   // หัวหน้าทีมสลับได้ 2 มุมมอง: "team" = เห็นทั้งทีม, "mine" = ทำงานขายเองเหมือนลูกทีมคนหนึ่ง
   const meAdmin = isAdmin(full.me.role);
   let mode = meAdmin ? "team" : full.leader ? (store.get("dashMode") || "team") : "mine";
@@ -641,19 +688,21 @@ async function renderDashboard() {
             ${t.status === "รอตอบ" ? `<button class="btn btn-ghost btn-sm" data-done="${esc(t.id)}">ตอบแล้ว</button>` : statusBadge(t.status)}</div>`; }).join("") || `<p class="muted">ไม่มีเรื่องค้าง</p>`}
         </div>`;
 
+      if (tab === "customers" && custId && custById[custId]) return customerDetail(d, custById[custId]);
       if (tab === "customers") {
-        const list = d.customers.filter(c => (filter === "ทั้งหมด" || c.type === filter) && (!q || (c.name + c.phone).includes(q)));
+        const list = d.customers.filter(c => (filter === "ทั้งหมด" || c.type === filter) && (!q || (c.name + c.phone + (c.occupation || "")).includes(q)));
         return `<div class="panel">
           <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:14px">
             <div class="seg" role="group" aria-label="กรองลูกค้า">${["ทั้งหมด", "ลูกค้า", "ลูกค้ามุ่งหวัง"].map(f => `<button type="button" data-filter="${f}" aria-pressed="${filter === f}">${f}</button>`).join("")}</div>
-            <input id="search" placeholder="ค้นหาชื่อหรือเบอร์โทร" value="${esc(q)}" style="max-width:260px">
+            <input id="search" placeholder="ค้นหาชื่อ เบอร์โทร หรืออาชีพ" value="${esc(q)}" style="max-width:260px">
           </div>
-          <div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ประเภท</th><th>เบอร์โทร</th><th>ตัวแทนหลัก</th><th>กรมธรรม์</th><th>บันทึก</th></tr></thead>
-          <tbody>${list.map(c => `<tr><td>${esc(c.name)}</td><td>${statusBadge(c.type)}</td><td><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></td><td>${esc((agentById[c.agent_id] || {}).name)}</td>
-            <td>${d.policies.filter(p => p.customer_id === c.id).map(p => esc(p.policy_no)).join("<br>") || "-"}</td><td class="small">${esc(c.note)}</td></tr>`).join("") || `<tr><td colspan="6">ไม่พบลูกค้าตามเงื่อนไข</td></tr>`}</tbody></table></div></div>
-          <div class="panel"><h3>เพิ่มลูกค้ามุ่งหวัง</h3><div class="form">
-            <label>ชื่อ<input id="lName"></label><label>เบอร์โทร<input id="lPhone" inputmode="tel"></label><label>บันทึก<input id="lNote" placeholder="เช่น สนใจประกันสุขภาพ นัดคุยวันเสาร์"></label>
-            <button class="btn btn-primary" id="addLead" type="button">เพิ่มลูกค้ามุ่งหวัง</button></div></div>`;
+          <div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ประเภท</th><th class="num">อายุ</th><th>อาชีพ</th><th>เบอร์โทร</th><th>ตัวแทนหลัก</th><th class="num">กรมธรรม์</th><th></th></tr></thead>
+          <tbody>${list.map(c => { const age = ageFrom(c.birthday); const n = full.policies.filter(p => p.customer_id === c.id).length;
+            return `<tr><td><b>${esc(c.name)}</b>${c.note ? `<br><span class="small muted">${esc(c.note)}</span>` : ""}</td><td>${statusBadge(c.type)}</td><td class="num">${age ?? "-"}</td><td>${esc(c.occupation || "-")}</td>
+            <td><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></td><td>${esc((agentById[c.agent_id] || {}).name)}</td><td class="num">${n || "-"}</td>
+            <td><button class="btn btn-ghost btn-sm" data-cust="${esc(c.id)}">เปิดข้อมูล</button></td></tr>`; }).join("") || `<tr><td colspan="8">ไม่พบลูกค้าตามเงื่อนไข</td></tr>`}</tbody></table></div></div>
+          <div class="panel"><h3>เพิ่มลูกค้ามุ่งหวัง</h3>${profileFields({}, "l")}
+            <button class="btn btn-primary" id="addLead" type="button" style="margin-top:14px">เพิ่มลูกค้ามุ่งหวัง</button><p class="error" id="lErr" role="alert"></p></div>`;
       }
       if (tab === "claims") return `<div class="panel"><h3>เคลมของลูกค้า</h3><div class="table-wrap"><table>
         <thead><tr><th>วันที่</th><th>ลูกค้า</th><th>กรมธรรม์</th><th>ประเภท</th><th class="num">จำนวน</th><th>สถานะ</th><th>หมายเหตุ</th></tr></thead>
@@ -664,9 +713,9 @@ async function renderDashboard() {
       // team overview (leader only)
       const rows = publicAgents(d.agents).map(a => {
         const cs = d.customers.filter(c => c.agent_id === a.id);
-        const ps = d.policies.filter(p => cs.some(c => c.id === p.customer_id));
+        const ps = d.policies.filter(p => cs.some(c => c.id === p.customer_id) && !["ยกเลิก", "ขาดอายุ"].includes(p.status));
         return { a, clients: cs.filter(c => c.type === "ลูกค้า").length, leads: cs.filter(c => c.type === "ลูกค้ามุ่งหวัง").length,
-          premium: ps.reduce((s, p) => s + Number(p.premium || 0) * (p.mode === "รายเดือน" ? 12 : 1), 0),
+          premium: ps.reduce((s, p) => s + annualPremium(p), 0),
           open: d.tickets.filter(t => t.agent_id === a.id && t.status === "รอตอบ").length };
       });
       return `<div class="panel"><h3>ผลงานรายตัวแทน</h3><div class="table-wrap"><table>
@@ -728,9 +777,236 @@ async function renderDashboard() {
         </div></div>`;
     }
 
+    /* ฟิลด์ข้อมูลลูกค้า ใช้ร่วมกันทั้งฟอร์มเพิ่มลูกค้ามุ่งหวัง (prefix "l") และฟอร์มแก้ไข (prefix "c") */
+    function profileFields(c, px) {
+      const age = ageFrom(c.birthday), inc = Number(c.monthly_income || 0);
+      return `<div class="pf-grid">
+        <label>ชื่อ-นามสกุล<input id="${px}Name" value="${esc(c.name || "")}"></label>
+        <label>เบอร์โทร<input id="${px}Phone" value="${esc(c.phone || "")}" inputmode="tel"></label>
+        <label>วันเกิด<input id="${px}Birth" type="date" value="${esc(c.birthday || "")}" max="${isoIn(0)}" data-age-out="${px}Age"></label>
+        <label>อายุ<output id="${px}Age" class="calc">${age != null ? age + " ปี" : "คำนวณจากวันเกิด"}</output></label>
+        <label>เพศ<select id="${px}Gender">${options(GENDERS, c.gender, "เลือก")}</select></label>
+        <label>อาชีพ<input id="${px}Occ" value="${esc(c.occupation || "")}" placeholder="เช่น พนักงานบริษัท, ค้าขาย"></label>
+        <label>รายได้ต่อเดือนโดยประมาณ (บาท)<input id="${px}Income" type="number" min="0" step="1000" value="${inc || ""}" inputmode="numeric" data-annual-out="${px}Annual"></label>
+        <label>รายได้ต่อปีโดยประมาณ<output id="${px}Annual" class="calc">${inc ? baht(inc * 12) : "คำนวณจากรายได้ต่อเดือน"}</output></label>
+        <label class="pf-wide">บันทึก<input id="${px}Note" value="${esc(c.note || "")}" placeholder="เช่น สนใจประกันสุขภาพ นัดคุยวันเสาร์"></label>
+      </div>`;
+    }
+    function readProfile(px) {
+      const v = (id) => ($("#" + px + id) || {}).value || "";
+      return { name: v("Name").trim(), phone: v("Phone").replace(/\D/g, ""), birthday: v("Birth"), gender: v("Gender"),
+        occupation: v("Occ").trim(), monthly_income: Number(v("Income") || 0), note: v("Note").trim() };
+    }
+    function profileError(c) {
+      if (!c.name) return "กรอกชื่อลูกค้า";
+      if (!/^0\d{8,9}$/.test(c.phone)) return "เบอร์โทรต้องเป็นตัวเลข 9-10 หลัก ขึ้นต้นด้วย 0";
+      return "";
+    }
+
+    function customerDetail(d, c) {
+      const pols = full.policies.filter(p => p.customer_id === c.id);
+      const nos = pols.map(p => p.policy_no);
+      const pays = full.payments.filter(x => nos.includes(x.policy_no)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      const cls = full.claims.filter(x => nos.includes(x.policy_no)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      const active = pols.filter(p => !["ยกเลิก", "ขาดอายุ"].includes(p.status));
+      const isLead = c.type !== "ลูกค้า";
+      const editing = form === "policy" ? (formKey ? pols.find(p => p.policy_no === formKey) || {} : {}) : null;
+
+      const policyForm = (p) => `<div class="panel" id="policyForm" style="border-color:var(--teal)"><h3>${p.policy_no ? "แก้ไขกรมธรรม์ " + esc(p.policy_no) : "บันทึกกรมธรรม์ใหม่"}</h3>
+        <div class="pf-grid">
+          <label>เลขกรมธรรม์<input id="pNo" value="${esc(p.policy_no || "")}" ${p.policy_no ? "readonly" : ""} placeholder="ถ้ายังไม่ออก ใส่เลขใบคำขอไปก่อน"></label>
+          <label>แบบประกัน<input id="pPlan" value="${esc(p.plan || "")}" placeholder="เช่น ประกันสุขภาพเหมาจ่าย"></label>
+          <label>ทุนประกัน (บาท)<input id="pSum" type="number" min="0" value="${esc(p.sum_assured || "")}" inputmode="numeric"></label>
+          <label>เบี้ยต่องวด (บาท)<input id="pPrem" type="number" min="0" value="${esc(p.premium || "")}" inputmode="numeric"></label>
+          <label>งวดการชำระ<select id="pMode">${options(MODES, p.mode || "รายปี")}</select></label>
+          <label>เบี้ยต่อปี<output id="pAnnual" class="calc">${p.premium ? baht(annualPremium(p)) : "-"}</output></label>
+          <label>วันเริ่มคุ้มครอง<input id="pStart" type="date" value="${esc(p.start_date || "")}"></label>
+          <label>ครบกำหนดชำระงวดถัดไป<input id="pDue" type="date" value="${esc(p.next_due || "")}"></label>
+          <label>สถานะ<select id="pStatus">${options(POLICY_STATUS, p.status || "รออนุมัติ")}</select></label>
+          <label>ระยะเวลาชำระเบี้ย (ปี)<input id="pYears" type="number" min="0" value="${esc(p.payment_years || "")}"></label>
+          <label>คุ้มครองถึงวันที่<input id="pEnd" type="date" value="${esc(p.coverage_end || "")}"></label>
+          <label>ผู้รับผลประโยชน์<input id="pBen" value="${esc(p.beneficiary || "")}" placeholder="ชื่อ และความสัมพันธ์"></label>
+          <label class="pf-wide">สัญญาเพิ่มเติม<input id="pRiders" value="${esc(p.riders || "")}" placeholder="เช่น ค่ารักษาผู้ป่วยนอก, อุบัติเหตุ"></label>
+          <label class="pf-wide">หมายเหตุ (ลูกค้าไม่เห็น)<input id="pNote" value="${esc(p.note || "")}"></label>
+        </div>
+        ${!p.policy_no && isLead ? `<div class="notice" style="margin-top:14px">เมื่อบันทึกกรมธรรม์ฉบับแรก ระบบจะเปลี่ยน ${esc(c.name)} จากลูกค้ามุ่งหวังเป็นลูกค้าให้อัตโนมัติ</div>` : ""}
+        <p class="error" id="pErr" role="alert"></p>
+        <div class="btn-row"><button class="btn btn-primary" id="pSave" type="button">${p.policy_no ? "บันทึกการแก้ไข" : "บันทึกกรมธรรม์"}</button><button class="btn btn-ghost" data-close-form type="button">ยกเลิก</button></div></div>`;
+
+      const payForm = (p) => `<div class="pay-box"><h4>บันทึกการชำระเบี้ย</h4>
+        <div class="pf-grid">
+          <label>วันที่ชำระ<input id="payDate" type="date" value="${isoIn(0)}" max="${isoIn(0)}"></label>
+          <label>จำนวนเงิน (บาท)<input id="payAmt" type="number" min="0" value="${esc(p.premium || "")}"></label>
+          <label class="pf-wide">ช่องทาง<select id="payCh">${options(PAY_CHANNELS, "แอปหรือเว็บไซต์บริษัท")}</select></label>
+        </div>
+        <p class="small muted">งวดถัดไปจะเลื่อนเป็น <b>${thDate(addMonths(p.next_due || isoIn(0), MODE_MONTHS[p.mode] || 12))}</b> ให้อัตโนมัติ</p>
+        <div class="btn-row"><button class="btn btn-primary btn-sm" id="paySave" data-no="${esc(p.policy_no)}" type="button">บันทึกการชำระ</button><button class="btn btn-ghost btn-sm" data-close-form type="button">ยกเลิก</button></div></div>`;
+
+      const field = (label, val) => val ? `<div><span class="small muted">${label}</span><br>${val}</div>` : "";
+      const policyCard = (p) => { const n = p.next_due ? daysUntil(p.next_due) : null;
+        return `<div class="pol-card">
+        <div class="pol-head"><div><b>${esc(p.plan)}</b><br><span class="small muted">เลขที่ ${esc(p.policy_no)}</span></div>${statusBadge(p.status)}</div>
+        <div class="pol-grid">
+          ${field("ทุนประกัน", baht(p.sum_assured))}
+          ${field("เบี้ย", baht(p.premium) + " " + esc(p.mode || ""))}
+          ${field("เบี้ยต่อปี", baht(annualPremium(p)))}
+          ${field("เริ่มคุ้มครอง", p.start_date ? thDate(p.start_date) : "")}
+          ${field("งวดถัดไป", p.next_due ? thDate(p.next_due) + (n != null && n <= 30 && p.status !== "ยกเลิก" ? " " + statusBadge(n < 0 ? "เลยกำหนด" : "อีก " + n + " วัน") : "") : "")}
+          ${field("ชำระเบี้ย", p.payment_years ? esc(p.payment_years) + " ปี" : "")}
+          ${field("คุ้มครองถึง", p.coverage_end ? thDate(p.coverage_end) : "")}
+          ${field("ผู้รับผลประโยชน์", esc(p.beneficiary))}
+          ${field("สัญญาเพิ่มเติม", esc(p.riders))}
+          ${field("ผู้ขาย", esc((agentById[p.sold_by] || {}).name || ""))}
+          ${field("หมายเหตุ", esc(p.note))}
+        </div>
+        ${form === "pay" && formKey === p.policy_no ? payForm(p) : `<div class="btn-row" style="margin-top:12px">
+          ${["รออนุมัติ", "ยกเลิก", "ขาดอายุ"].includes(p.status) ? "" : `<button class="btn btn-primary btn-sm" data-pay="${esc(p.policy_no)}">บันทึกการชำระ</button>`}
+          <button class="btn btn-ghost btn-sm" data-edit-pol="${esc(p.policy_no)}">แก้ไขกรมธรรม์</button></div>`}
+      </div>`; };
+
+      return `
+      <button class="btn btn-ghost btn-sm" id="backList" type="button" style="margin-bottom:16px">กลับไปรายชื่อลูกค้า</button>
+      <div class="cust-head"><div><h2 style="margin:0">${esc(c.name)}</h2>
+        <span class="muted small">${[ageFrom(c.birthday) != null ? "อายุ " + ageFrom(c.birthday) + " ปี" : "", c.gender, c.occupation, "ดูแลโดย " + ((agentById[c.agent_id] || {}).name || "-")].filter(Boolean).join(", ")}</span></div>
+        ${statusBadge(c.type)}</div>
+
+      ${isLead ? `<div class="panel close-sale"><div><h3 style="margin:0 0 4px">ปิดการขายได้แล้ว?</h3><p class="muted" style="margin:0">บันทึกกรมธรรม์ฉบับแรก แล้วระบบจะเปลี่ยนเป็นลูกค้าให้อัตโนมัติ</p></div>
+        ${form === "policy" ? "" : `<button class="btn btn-primary" data-new-pol type="button">บันทึกการขาย</button>`}</div>` : ""}
+
+      <div class="kpis">
+        <div class="kpi"><b>${active.length}</b>กรมธรรม์ที่มีผล</div>
+        <div class="kpi"><b>${baht(active.reduce((s, p) => s + Number(p.sum_assured || 0), 0)).replace(" บาท", "")}</b>ทุนประกันรวม (บาท)</div>
+        <div class="kpi"><b>${baht(active.reduce((s, p) => s + annualPremium(p), 0)).replace(" บาท", "")}</b>เบี้ยรวมต่อปี (บาท)</div>
+        <div class="kpi"><b>${c.monthly_income ? Math.round(active.reduce((s, p) => s + annualPremium(p), 0) / (c.monthly_income * 12) * 100) + "%" : "-"}</b>เบี้ยเทียบรายได้ต่อปี</div>
+      </div>
+
+      ${form === "policy" ? policyForm(editing) : ""}
+
+      <div class="panel"><div class="pol-head"><h3 style="margin:0">ประวัติการซื้อประกัน (${pols.length} ฉบับ)</h3>
+        ${!isLead && form !== "policy" ? `<button class="btn btn-ghost btn-sm" data-new-pol type="button">เพิ่มกรมธรรม์</button>` : ""}</div>
+        ${pols.length ? [...pols].sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).map(policyCard).join("") : `<p class="muted" style="margin-top:12px">ยังไม่มีกรมธรรม์</p>`}
+      </div>
+
+      <div class="two-col" style="align-items:start">
+        <div class="panel"><h3>ข้อมูลส่วนตัว</h3>${profileFields(c, "c")}
+          ${full.leader ? `<label style="margin-top:14px">ตัวแทนหลัก<select id="cAgent">${publicAgents(full.agents).map(a => `<option value="${esc(a.id)}" ${a.id === c.agent_id ? "selected" : ""}>${esc(a.name)} (${esc(a.id)})</option>`).join("")}</select></label>` : ""}
+          <label style="margin-top:14px">ลิงก์กลุ่ม LINE ของลูกค้า<input id="cLine" value="${esc(c.line_group_url || "")}" placeholder="https://line.me/R/ti/g/..."></label>
+          ${isLead ? "" : `<label style="margin-top:14px">ตั้งรหัสผ่านให้ลูกค้าเข้าดูกรมธรรม์ (เว้นว่างถ้าไม่เปลี่ยน)<input id="cPw" type="password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัว"></label>`}
+          <p class="error" id="cErr" role="alert"></p>
+          <button class="btn btn-primary" id="cSave" type="button">บันทึกข้อมูลลูกค้า</button>
+        </div>
+        <div>
+          <div class="panel"><h3>ประวัติการชำระเบี้ย</h3><div class="table-wrap"><table>
+            <thead><tr><th>วันที่</th><th>กรมธรรม์</th><th class="num">จำนวน</th><th>ช่องทาง</th></tr></thead>
+            <tbody>${pays.map(x => `<tr><td>${thDate(x.date)}</td><td>${esc(x.policy_no)}</td><td class="num">${baht(x.amount)}</td><td>${esc(x.channel)}</td></tr>`).join("") || `<tr><td colspan="4">ยังไม่มีประวัติการชำระ</td></tr>`}</tbody></table></div></div>
+          <div class="panel"><div class="pol-head"><h3 style="margin:0">การเคลม</h3>${pols.length && form !== "claim" ? `<button class="btn btn-ghost btn-sm" data-new-claim type="button">บันทึกการเคลม</button>` : ""}</div>
+            ${form === "claim" ? `<div class="pay-box"><div class="pf-grid">
+              <label>กรมธรรม์<select id="clPol">${pols.map(p => `<option value="${esc(p.policy_no)}">${esc(p.policy_no)} ${esc(p.plan)}</option>`).join("")}</select></label>
+              <label>ประเภท<select id="clType">${options(CLAIM_TYPES, "ผู้ป่วยใน")}</select></label>
+              <label>วันที่ยื่น<input id="clDate" type="date" value="${isoIn(0)}"></label>
+              <label>จำนวนเงิน (บาท)<input id="clAmt" type="number" min="0"></label>
+              <label class="pf-wide">หมายเหตุ (ลูกค้าเห็น)<input id="clNote" placeholder="เช่น รอใบรับรองแพทย์ฉบับจริง"></label></div>
+              <div class="btn-row" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="clSave" type="button">บันทึกการเคลม</button><button class="btn btn-ghost btn-sm" data-close-form type="button">ยกเลิก</button></div></div>` : ""}
+            <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>วันที่</th><th>ประเภท</th><th class="num">จำนวน</th><th>สถานะ</th></tr></thead>
+            <tbody>${cls.map(x => `<tr><td>${thDate(x.date)}<br><span class="small muted">${esc(x.policy_no)}</span></td><td>${esc(x.type)}${x.note ? `<br><span class="small muted">${esc(x.note)}</span>` : ""}</td><td class="num">${baht(x.amount)}</td>
+              <td><select data-claim="${esc(x.id)}" aria-label="สถานะเคลม" style="padding:6px 8px;font-size:.9rem">${options(CLAIM_STATUS, x.status)}</select></td></tr>`).join("") || `<tr><td colspan="4">ยังไม่มีการเคลม</td></tr>`}</tbody></table></div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function bindCalc() { // คำนวณอายุและรายได้ต่อปีทันทีที่พิมพ์
+      app.querySelectorAll("[data-age-out]").forEach(i => i.oninput = () => { const a = ageFrom(i.value); $("#" + i.dataset.ageOut).textContent = a != null ? a + " ปี" : "คำนวณจากวันเกิด"; });
+      app.querySelectorAll("[data-annual-out]").forEach(i => i.oninput = () => { const v = Number(i.value || 0); $("#" + i.dataset.annualOut).textContent = v ? baht(v * 12) : "คำนวณจากรายได้ต่อเดือน"; });
+      const prem = $("#pPrem"), mode = $("#pMode");
+      if (prem) { const upd = () => { $("#pAnnual").textContent = prem.value ? baht(annualPremium({ premium: prem.value, mode: mode.value })) : "-"; }; prem.oninput = upd; mode.onchange = upd; }
+      const start = $("#pStart"), due = $("#pDue");
+      if (start && due) start.onchange = () => { if (!due.value && start.value) due.value = addMonths(start.value, MODE_MONTHS[mode.value] || 12); };
+    }
+
+    function bindCustomer() {
+      const c = custById[custId]; if (!c) return;
+      const tok = State.session.token;
+      const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
+      $("#backList") && ($("#backList").onclick = () => { custId = null; form = null; view(); });
+      app.querySelectorAll("[data-new-pol]").forEach(b => b.onclick = () => { form = "policy"; formKey = null; view(); $("#policyForm")?.scrollIntoView({ behavior: "smooth" }); });
+      app.querySelectorAll("[data-edit-pol]").forEach(b => b.onclick = () => { form = "policy"; formKey = b.dataset.editPol; view(); $("#policyForm")?.scrollIntoView({ behavior: "smooth" }); });
+      app.querySelectorAll("[data-pay]").forEach(b => b.onclick = () => { form = "pay"; formKey = b.dataset.pay; view(); });
+      app.querySelectorAll("[data-new-claim]").forEach(b => b.onclick = () => { form = "claim"; view(); });
+      app.querySelectorAll("[data-close-form]").forEach(b => b.onclick = () => { form = null; formKey = null; view(); });
+
+      const cs = $("#cSave"); if (cs) cs.onclick = async () => {
+        const patch = { ...readProfile("c"), line_group_url: $("#cLine").value.trim() };
+        if ($("#cAgent")) patch.agent_id = $("#cAgent").value;
+        const e = profileError(patch); if (e) return ($("#cErr").textContent = e);
+        if (patch.line_group_url && !/^https:\/\//.test(patch.line_group_url)) return ($("#cErr").textContent = "ลิงก์ LINE ต้องขึ้นต้นด้วย https://");
+        const pw = $("#cPw") ? $("#cPw").value : "";
+        if (pw && pw.length < 6) return ($("#cErr").textContent = "รหัสผ่านต้องยาวอย่างน้อย 6 ตัว");
+        busy(cs, true, "กำลังบันทึก…");
+        try {
+          await Api.call("updateCustomer", { token: tok, id: c.id, patch, password_hash: pw ? await sha256(pw) : undefined });
+          Object.assign(c, patch); toast(pw ? "บันทึกแล้ว แจ้งรหัสผ่านให้ลูกค้าทาง LINE ส่วนตัว" : "บันทึกข้อมูลลูกค้าแล้ว", pw ? 5000 : 2600); view();
+        } catch (e2) { busy(cs, false, "บันทึกข้อมูลลูกค้า"); $("#cErr").textContent = e2.message; }
+      };
+
+      const ps = $("#pSave"); if (ps) ps.onclick = async () => {
+        const v = (id) => $(id).value.trim();
+        const pol = { policy_no: v("#pNo"), customer_id: c.id, plan: v("#pPlan"), sum_assured: Number(v("#pSum") || 0), premium: Number(v("#pPrem") || 0),
+          mode: $("#pMode").value, start_date: v("#pStart"), next_due: v("#pDue"), status: $("#pStatus").value, payment_years: v("#pYears") ? Number(v("#pYears")) : "",
+          coverage_end: v("#pEnd"), beneficiary: v("#pBen"), riders: v("#pRiders"), note: v("#pNote") };
+        const err = (m) => ($("#pErr").textContent = m);
+        if (!pol.policy_no) return err("กรอกเลขกรมธรรม์ หรือเลขใบคำขอ");
+        if (!pol.plan) return err("กรอกชื่อแบบประกัน");
+        if (!pol.premium) return err("กรอกเบี้ยต่องวด");
+        if (!pol.start_date) return err("เลือกวันเริ่มคุ้มครอง (ถ้ายังไม่อนุมัติ ใส่วันที่ยื่นใบคำขอ)");
+        if (!pol.next_due) pol.next_due = addMonths(pol.start_date, MODE_MONTHS[pol.mode] || 12);
+        busy(ps, true, "กำลังบันทึก…");
+        try {
+          if (formKey) {
+            const { policy_no, customer_id, ...patch } = pol;
+            await Api.call("updatePolicy", { token: tok, policy_no: formKey, patch });
+            Object.assign(full.policies.find(p => p.policy_no === formKey), patch); toast("บันทึกการแก้ไขแล้ว");
+          } else {
+            const r = await Api.call("addPolicy", { token: tok, policy: pol });
+            full.policies.push(r.policy || { ...pol, sold_by: c.agent_id });
+            if (r.converted || c.type !== "ลูกค้า") { c.type = "ลูกค้า"; toast("ยินดีด้วย! " + c.name + " เป็นลูกค้าแล้ว ตั้งรหัสผ่านให้ลูกค้าได้ที่ข้อมูลส่วนตัวด้านล่าง", 6000); }
+            else toast("บันทึกกรมธรรม์แล้ว");
+          }
+          form = null; formKey = null; view();
+        } catch (e2) { busy(ps, false, formKey ? "บันทึกการแก้ไข" : "บันทึกกรมธรรม์"); err(e2.message); }
+      };
+
+      const pay = $("#paySave"); if (pay) pay.onclick = async () => {
+        const no = pay.dataset.no, amount = Number($("#payAmt").value || 0), date = $("#payDate").value, channel = $("#payCh").value;
+        if (!amount || !date) return toast("กรอกวันที่และจำนวนเงิน");
+        busy(pay, true, "กำลังบันทึก…");
+        try {
+          const r = await Api.call("recordPayment", { token: tok, policy_no: no, date, amount, channel });
+          full.payments.unshift(r.payment || { policy_no: no, date, amount, channel, status: "ชำระแล้ว" });
+          const p = full.policies.find(x => x.policy_no === no); if (r.next_due) p.next_due = r.next_due; if (r.status) p.status = r.status;
+          toast("บันทึกการชำระแล้ว งวดถัดไป " + thDate(p.next_due), 4000); form = null; formKey = null; view();
+        } catch (e2) { busy(pay, false, "บันทึกการชำระ"); toast(e2.message, 4000); }
+      };
+
+      const cl = $("#clSave"); if (cl) cl.onclick = async () => {
+        const claim = { policy_no: $("#clPol").value, type: $("#clType").value, date: $("#clDate").value, amount: Number($("#clAmt").value || 0), note: $("#clNote").value.trim(), status: "รอเอกสาร" };
+        if (!claim.date) return toast("เลือกวันที่ยื่นเคลม");
+        busy(cl, true, "กำลังบันทึก…");
+        try { const r = await Api.call("addClaim", { token: tok, claim }); full.claims.unshift(r.claim || claim); toast("บันทึกการเคลมแล้ว"); form = null; view(); }
+        catch (e2) { busy(cl, false, "บันทึกการเคลม"); toast(e2.message, 4000); }
+      };
+      app.querySelectorAll("[data-claim]").forEach(sel => sel.onchange = async () => {
+        try { await Api.call("updateClaim", { token: tok, id: sel.dataset.claim, patch: { status: sel.value } });
+          const x = full.claims.find(k => k.id === sel.dataset.claim); if (x) x.status = sel.value; toast("อัปเดตสถานะเคลมเป็น " + sel.value); }
+        catch (e2) { toast(e2.message, 4000); view(); }
+      });
+    }
+
     $("#logout").onclick = logout;
+    bindCalc(); bindCustomer();
+    app.querySelectorAll("[data-cust]").forEach(b => b.onclick = () => { custId = b.dataset.cust; form = null; formKey = null; view(); window.scrollTo({ top: 0 }); });
     app.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; store.set("dashMode", mode); view(); });
-    app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; view(); });
+    app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; custId = null; form = null; view(); });
     app.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { filter = b.dataset.filter; view(); });
     const s = $("#search"); if (s) s.oninput = (e) => { q = e.target.value.trim(); clearTimeout(s._t); s._t = setTimeout(() => { view(); const n = $("#search"); n.focus(); n.setSelectionRange(q.length, q.length); }, 250); };
     app.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
@@ -795,12 +1071,15 @@ async function renderDashboard() {
       } catch (e2) { gs.disabled = false; gs.textContent = editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"; err(e2.message); }
     };
     const add = $("#addLead"); if (add) add.onclick = async () => {
-      const name = $("#lName").value.trim(), phone = $("#lPhone").value.replace(/\D/g, ""), note = $("#lNote").value.trim();
-      if (!name || !phone) { toast("กรอกชื่อและเบอร์โทร"); return; }
-      await Api.call("addLead", { token: State.session.token, name, phone, note });
-      const lead = { id: "new" + Date.now(), name, phone, note, type: "ลูกค้ามุ่งหวัง", agent_id: full.me.id };
-      full.customers.push(lead); custById[lead.id] = lead;
-      toast("เพิ่มลูกค้ามุ่งหวังแล้ว"); view();
+      const lead = readProfile("l"); const e = profileError(lead);
+      if (e) { $("#lErr").textContent = e; return; }
+      add.disabled = true; add.textContent = "กำลังบันทึก…";
+      try {
+        const r = await Api.call("addLead", { token: State.session.token, lead });
+        const c = r.customer || { ...lead, id: "new" + Date.now(), type: "ลูกค้ามุ่งหวัง", agent_id: full.me.id };
+        full.customers.push(c); custById[c.id] = c;
+        toast("เพิ่ม " + c.name + " เป็นลูกค้ามุ่งหวังแล้ว"); view();
+      } catch (e2) { add.disabled = false; add.textContent = "เพิ่มลูกค้ามุ่งหวัง"; $("#lErr").textContent = e2.message; }
     };
   };
   view();
