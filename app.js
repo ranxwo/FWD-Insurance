@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03b"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03c"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 const CONFIG = {
   SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
@@ -581,7 +581,10 @@ function renderLogin() {
       const unlock = () => el.removeAttribute("readonly"); el.addEventListener("focus", unlock); el.addEventListener("pointerdown", unlock); });
     setTimeout(() => { const u = $("#username"), pw = $("#password"); if (u && pw && !u.matches(":focus") && !pw.matches(":focus")) { u.value = ""; pw.value = ""; } }, 600);
     $("#loginBtn").onclick = submit;
-    $("#password").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+    $("#password").onkeydown = (e) => {
+      if (e.getModifierState && e.getModifierState("CapsLock")) $("#loginErr").textContent = "Caps Lock เปิดอยู่ ตัวพิมพ์ใหญ่/เล็กมีผลกับรหัสผ่าน";
+      if (e.key === "Enter") submit();
+    };
     $("#username").onkeydown = (e) => { if (e.key === "Enter") $("#password").focus(); };
   };
   app.querySelectorAll(".seg button").forEach(b => b.onclick = () => { if (role !== b.dataset.role) { role = b.dataset.role; draw(); $("#username").focus(); } });
@@ -591,6 +594,7 @@ function renderLogin() {
     const pw = $("#password").value;
     $("#loginErr").textContent = "";
     if (!username || !pw) { $("#loginErr").textContent = "กรอกข้อมูลให้ครบทั้งสองช่อง"; return; }
+    if (/[\u0E00-\u0E7F]/.test(pw + username)) { $("#loginErr").textContent = "มีตัวอักษรภาษาไทยในช่องที่กรอก แป้นพิมพ์อาจเป็นภาษาไทยอยู่ ให้สลับเป็นภาษาอังกฤษแล้วพิมพ์ใหม่"; return; }
     let useRole = role;
     if (role === "customer") {
       const digits = username.replace(/\D/g, "");
@@ -665,6 +669,7 @@ function renderPassword() {
   $("#pwSave").onclick = async () => {
     const cur = $("#pwCur").value, nw = $("#pwNew").value, nw2 = $("#pwNew2").value;
     if (!cur) return err("กรอกรหัสผ่าน" + (forced ? "ชั่วคราว" : "ปัจจุบัน"));
+    if (/[\u0E00-\u0E7F]/.test(cur + nw)) return err("มีตัวอักษรภาษาไทยในรหัสผ่าน ให้สลับแป้นพิมพ์เป็นภาษาอังกฤษแล้วพิมพ์ใหม่");
     if (nw.length < min) return err("รหัสผ่านใหม่ต้องยาวอย่างน้อย " + min + " ตัว");
     if (agent && !(/[a-z]/i.test(nw) && /\d/.test(nw))) return err("รหัสผ่านตัวแทนต้องมีทั้งตัวอักษรและตัวเลข");
     if (/^(\d)\1+$/.test(nw) || "0123456789012345678909876543210".includes(nw)) return err("รหัสผ่านเดาง่ายเกินไป ลองตั้งใหม่");
@@ -1205,6 +1210,7 @@ async function renderDashboard() {
       if (agent.line_url && !/^https:\/\//.test(agent.line_url)) return err("ลิงก์ LINE ต้องขึ้นต้นด้วย https://");
       if (!editId && !pw) return err("ตั้งรหัสผ่านเริ่มต้นให้ตัวแทนใหม่");
       if (pw && pw.length < 6) return err("รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร");
+      if (/[\u0E00-\u0E7F]/.test(pw)) return err("มีตัวอักษรภาษาไทยในรหัสผ่าน ให้สลับแป้นพิมพ์เป็นภาษาอังกฤษแล้วพิมพ์ใหม่");
       if (pw !== pw2) return err("รหัสผ่านสองช่องไม่ตรงกัน");
       if (editId === full.me.id) agent.role = full.me.role; // เปลี่ยนตำแหน่งของตัวเองไม่ได้
       gs.disabled = true; gs.textContent = "กำลังบันทึก…";
