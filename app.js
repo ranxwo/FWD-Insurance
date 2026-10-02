@@ -33,10 +33,10 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
-function toast(msg) {
+function toast(msg, ms = 2600) {
   const t = document.createElement("div");
   t.className = "toast"; t.setAttribute("role", "status"); t.textContent = msg;
-  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+  document.body.appendChild(t); setTimeout(() => t.remove(), ms);
 }
 function avatar(p, size = "") {
   const src = p && p.photo_url;
@@ -44,7 +44,7 @@ function avatar(p, size = "") {
 }
 function statusBadge(s) {
   const map = {
-    "มีผลบังคับ": "b-ok", "ชำระแล้ว": "b-ok", "อนุมัติ": "b-ok", "ตอบแล้ว": "b-ok", "ปิดเรื่อง": "b-ok",
+    "มีผลบังคับ": "b-ok", "พร้อมดูแล": "b-ok", "ชำระแล้ว": "b-ok", "อนุมัติ": "b-ok", "ตอบแล้ว": "b-ok", "ปิดเรื่อง": "b-ok",
     "รอชำระ": "b-warn", "รอพิจารณา": "b-warn", "รอเอกสาร": "b-warn", "รอตอบ": "b-warn", "ลูกค้ามุ่งหวัง": "b-info",
     "ขาดอายุ": "b-bad", "ไม่อนุมัติ": "b-bad", "เลยกำหนด": "b-bad"
   };
@@ -215,6 +215,19 @@ const DemoApi = {
     const agent_id = token.replace("demo-", "");
     const c = { id: "C" + Date.now(), name, phone, type: "ลูกค้ามุ่งหวัง", agent_id, note, line_group_url: "", birthday: "", photo_url: "", password: "" };
     DEMO.customers.push(c); return { ok: true };
+  },
+  addAgent({ token, agent, password_hash }) {
+    const me = DEMO.agents.find(a => a.id === token.replace("demo-", ""));
+    if (!me || me.role !== "หัวหน้าทีม") throw new Error("เฉพาะหัวหน้าทีมเท่านั้นที่เพิ่มตัวแทนได้");
+    if (DEMO.agents.some(a => a.id.toLowerCase() === agent.id.toLowerCase())) throw new Error("รหัสตัวแทน " + agent.id + " มีอยู่แล้ว ใช้รหัสอื่น");
+    DEMO.agents.push({ ...agent, photo_url: "", password: "demo" });
+    return { ok: true, agent: { ...agent, photo_url: "" } };
+  },
+  updateAgent({ token, id, patch }) {
+    const me = DEMO.agents.find(a => a.id === token.replace("demo-", ""));
+    if (!me || me.role !== "หัวหน้าทีม") throw new Error("เฉพาะหัวหน้าทีมเท่านั้นที่แก้ข้อมูลตัวแทนได้");
+    const a = DEMO.agents.find(x => x.id === id); if (a) Object.assign(a, patch);
+    return { ok: true };
   }
 };
 
@@ -558,7 +571,7 @@ function portalTab(tab, d, upcoming) {
 async function renderDashboard() {
   if (!requireRole("agent")) return;
   const full = await Api.call("agentData", { token: State.session.token });
-  let tab = "today", filter = "ทั้งหมด", q = "";
+  let tab = "today", filter = "ทั้งหมด", q = "", editId = null;
   // หัวหน้าทีมสลับได้ 2 มุมมอง: "team" = เห็นทั้งทีม, "mine" = ทำงานขายเองเหมือนลูกทีมคนหนึ่ง
   let mode = full.leader ? (store.get("dashMode") || "team") : "mine";
   const custById = Object.fromEntries(full.customers.map(c => [c.id, c]));
@@ -579,11 +592,11 @@ async function renderDashboard() {
 
   const view = () => {
     const d = scope();
-    if (tab === "team" && !d.leader) tab = "today";
+    if ((tab === "team" || tab === "manage") && !d.leader) tab = "today";
     const due = d.policies.filter(p => daysUntil(p.next_due) <= CONFIG.REMIND_DAYS).sort((a, b) => new Date(a.next_due) - new Date(b.next_due));
     const pending = d.tickets.filter(t => t.status === "รอตอบ");
     const leads = d.customers.filter(c => c.type === "ลูกค้ามุ่งหวัง");
-    const tabs = [["today", "งานวันนี้"], ["customers", "ลูกค้า"], ["claims", "เคลม"], ...(d.leader ? [["team", "ภาพรวมทีม"]] : [])];
+    const tabs = [["today", "งานวันนี้"], ["customers", "ลูกค้า"], ["claims", "เคลม"], ...(d.leader ? [["team", "ภาพรวมทีม"], ["manage", "จัดการทีม"]] : [])];
 
     app.innerHTML = `<div class="wrap">
       <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">${esc(d.me.name)}</h1><span class="muted small">${esc(d.me.role)}${full.leader ? (mode === "team" ? ", กำลังดูข้อมูลทั้งทีม" : ", กำลังดูเฉพาะลูกค้าของคุณ") : ""}</span></div>
@@ -634,6 +647,8 @@ async function renderDashboard() {
         <thead><tr><th>วันที่</th><th>ลูกค้า</th><th>กรมธรรม์</th><th>ประเภท</th><th class="num">จำนวน</th><th>สถานะ</th><th>หมายเหตุ</th></tr></thead>
         <tbody>${d.claims.map(c => { const p = d.policies.find(x => x.policy_no === c.policy_no) || {}; return `<tr><td>${thDate(c.date)}</td><td>${esc((custById[p.customer_id] || {}).name)}</td><td>${esc(c.policy_no)}</td><td>${esc(c.type)}</td><td class="num">${baht(c.amount)}</td><td>${statusBadge(c.status)}</td><td>${esc(c.note)}</td></tr>`; }).join("") || `<tr><td colspan="7">ยังไม่มีรายการเคลม</td></tr>`}</tbody></table></div></div>`;
 
+      if (tab === "manage") return manageTab(d);
+
       // team overview (leader only)
       const rows = d.agents.map(a => {
         const cs = d.customers.filter(c => c.agent_id === a.id);
@@ -647,6 +662,38 @@ async function renderDashboard() {
         <tbody>${rows.map(r => `<tr><td>${esc(r.a.name)}</td><td class="num">${r.clients}</td><td class="num">${r.leads}</td><td class="num">${baht(r.premium)}</td><td class="num">${r.open ? statusBadge(r.open + " เรื่อง") : "0"}</td><td>${esc((agentById[r.a.backup_id] || {}).name || "-")}</td></tr>`).join("")}</tbody></table></div></div>`;
     }
 
+
+    function manageTab(d) {
+      const e = editId ? (agentById[editId] || {}) : {};
+      const opt = (v, cur) => `<option ${v === cur ? "selected" : ""}>${v}</option>`;
+      return `<div class="two-col" style="align-items:start">
+        <div class="panel"><h3>${editId ? "แก้ไขข้อมูล " + esc(e.name) : "เพิ่มตัวแทนใหม่"}</h3>
+          <div class="form" style="max-width:none">
+            <label>รหัสตัวแทน (ใช้ล็อกอิน)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly" : ""} placeholder="เช่น A10" autocapitalize="characters"></label>
+            <label>ชื่อ-นามสกุล<input id="gName" value="${esc(e.name || "")}"></label>
+            <label>ตำแหน่ง<select id="gRole">${["ตัวแทน", "ตัวแทนอาวุโส", "หัวหน้าทีม"].map(r => opt(r, e.role || "ตัวแทน")).join("")}</select></label>
+            <label>เลขใบอนุญาตตัวแทน<input id="gLic" value="${esc(e.license_no || "")}" inputmode="numeric"></label>
+            <label>ประสบการณ์ (ปี)<input id="gYears" type="number" min="0" value="${esc(e.years ?? "")}"></label>
+            <label>เบอร์โทร<input id="gPhone" value="${esc(e.phone || "")}" inputmode="tel"></label>
+            <label>ลิงก์ LINE<input id="gLine" value="${esc(e.line_url || "")}" placeholder="https://line.me/ti/p/~lineid"></label>
+            <label>อีเมลรับแจ้งเตือน (ไม่แสดงบนเว็บ)<input id="gEmail" type="email" value="${esc(e.email || "")}"></label>
+            <label>ตัวแทนสำรอง<select id="gBackup"><option value="">ไม่ระบุ</option>${d.agents.filter(a => a.id !== editId).map(a => `<option value="${esc(a.id)}" ${a.id === e.backup_id ? "selected" : ""}>${esc(a.name)} (${esc(a.id)})</option>`).join("")}</select></label>
+            <label>ความถนัด (คั่นด้วยจุลภาค)<input id="gSpec" value="${esc((e.specialties || []).join(", "))}" placeholder="เช่น เคลมสุขภาพ, ลดหย่อนภาษี"></label>
+            <label>แนะนำตัว<textarea id="gBio" rows="3">${esc(e.bio || "")}</textarea></label>
+            <label style="display:flex;align-items:center;gap:10px;font-weight:400"><input id="gDuty" type="checkbox" style="width:auto" ${e.on_duty !== false ? "checked" : ""}> แสดงในกล่อง "พร้อมดูแลวันนี้"</label>
+            <label>${editId ? "ตั้งรหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)" : "รหัสผ่านเริ่มต้น"}<input id="gPw" type="password" autocomplete="new-password"></label>
+            <label>พิมพ์รหัสผ่านอีกครั้ง<input id="gPw2" type="password" autocomplete="new-password"></label>
+            <p class="error" id="gErr" role="alert"></p>
+            <div class="btn-row"><button class="btn btn-primary" id="gSave" type="button">${editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"}</button>
+            ${editId ? `<button class="btn btn-ghost" id="gCancel" type="button">ยกเลิก</button>` : ""}</div>
+          </div></div>
+        <div class="panel"><h3>ตัวแทนในทีม (${d.agents.length} คน)</h3>
+          ${d.agents.map(a => `<div class="agent-mini">${avatar(a, "sm")}<div style="flex:1"><b>${esc(a.name)}</b> <span class="small muted">${esc(a.id)}, ${esc(a.role)}</span><br>
+            <span class="small">${a.on_duty ? statusBadge("พร้อมดูแล") : `<span class="badge b-info">ไม่แสดงในกล่องพร้อมดูแล</span>`}</span></div>
+            <button class="btn btn-ghost btn-sm" data-edit="${esc(a.id)}">แก้ไข</button></div>`).join("")}
+        </div></div>`;
+    }
+
     $("#logout").onclick = logout;
     app.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; store.set("dashMode", mode); view(); });
     app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; view(); });
@@ -657,6 +704,43 @@ async function renderDashboard() {
       const t = d.tickets.find(x => x.id === b.dataset.done); if (t) t.status = "ตอบแล้ว";
       toast("บันทึกว่าตอบแล้ว"); view();
     });
+
+    app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { editId = b.dataset.edit; view(); window.scrollTo({ top: 0 }); });
+    const gc = $("#gCancel"); if (gc) gc.onclick = () => { editId = null; view(); };
+    const gs = $("#gSave"); if (gs) gs.onclick = async () => {
+      const err = (m) => { $("#gErr").textContent = m; };
+      const val = (id) => $(id).value.trim();
+      const agent = {
+        id: val("#gId").toUpperCase(), name: val("#gName"), role: $("#gRole").value, license_no: val("#gLic"),
+        years: Number(val("#gYears") || 0), phone: val("#gPhone").replace(/\D/g, ""), line_url: val("#gLine"), email: val("#gEmail"),
+        backup_id: $("#gBackup").value, specialties: val("#gSpec").split(",").map(x => x.trim()).filter(Boolean),
+        bio: val("#gBio"), on_duty: $("#gDuty").checked
+      };
+      const pw = $("#gPw").value, pw2 = $("#gPw2").value;
+      if (!/^[A-Z0-9_-]{2,20}$/.test(agent.id)) return err("รหัสตัวแทนใช้ได้เฉพาะตัวอักษรภาษาอังกฤษและตัวเลข 2-20 ตัว เช่น A10");
+      if (!agent.name) return err("กรอกชื่อ-นามสกุล");
+      if (agent.line_url && !/^https:\/\//.test(agent.line_url)) return err("ลิงก์ LINE ต้องขึ้นต้นด้วย https://");
+      if (!editId && !pw) return err("ตั้งรหัสผ่านเริ่มต้นให้ตัวแทนใหม่");
+      if (pw && pw.length < 6) return err("รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร");
+      if (pw !== pw2) return err("รหัสผ่านสองช่องไม่ตรงกัน");
+      if (editId === full.me.id && agent.role !== "หัวหน้าทีม") return err("เปลี่ยนตำแหน่งของตัวเองไม่ได้ ให้หัวหน้าทีมคนอื่นเปลี่ยนให้");
+      gs.disabled = true; gs.textContent = "กำลังบันทึก…";
+      try {
+        const password_hash = pw ? await sha256(pw) : undefined;
+        if (editId) {
+          const { id, ...patch } = agent;
+          await Api.call("updateAgent", { token: State.session.token, id: editId, patch, password_hash });
+          Object.assign(agentById[editId], patch);
+          toast("บันทึกข้อมูล " + agent.name + " แล้ว");
+        } else {
+          await Api.call("addAgent", { token: State.session.token, agent, password_hash });
+          full.agents.push(agent); agentById[agent.id] = agent;
+          toast("เพิ่ม " + agent.name + " แล้ว แจ้งรหัส " + agent.id + " และรหัสผ่านให้ตัวแทนทาง LINE ส่วนตัว", 6000);
+        }
+        State.pub = null; // ให้หน้าเว็บสาธารณะโหลดรายชื่อทีมใหม่
+        editId = null; view();
+      } catch (e2) { gs.disabled = false; gs.textContent = editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"; err(e2.message); }
+    };
     const add = $("#addLead"); if (add) add.onclick = async () => {
       const name = $("#lName").value.trim(), phone = $("#lPhone").value.replace(/\D/g, ""), note = $("#lNote").value.trim();
       if (!name || !phone) { toast("กรอกชื่อและเบอร์โทร"); return; }
