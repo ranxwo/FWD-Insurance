@@ -309,8 +309,14 @@ output.calc{display:block;padding:11px 14px;border-radius:var(--r-sm);background
   .site-head,footer,.app-head,.kpis,.tabs,.no-print,.install-bar,.toast{display:none!important}
   body{background:#fff;font-size:12px}
   .wrap{width:100%}
-  .rp-lead{break-inside:avoid;page-break-inside:avoid;box-shadow:none}
-  .rp-set{break-inside:avoid}
+  /* รายงานที่พิมพ์: ไม่แสดงกล่องสรุป, ลูกค้าแต่ละรายขึ้นหน้าใหม่, ใบเสนอแต่ละชุดขึ้นหน้าใหม่ */
+  .rp-funnel,.rp-kpis{display:none!important}
+  .rp-lead{box-shadow:none}
+  .rp-lead:not(.hidden) ~ .rp-lead:not(.hidden){break-before:page;page-break-before:always}
+  .rp-set{break-inside:avoid;page-break-inside:avoid}
+  .rp-set + .rp-set{break-before:page;page-break-before:always;margin-top:0}
+  .print-only{display:block!important}
+  .rp-cont{font-weight:600;color:var(--teal);padding-bottom:6px;margin-bottom:8px;border-bottom:1px solid var(--line)}
   .rp-stage{border-color:#ddd}
   .rp-kpis .rp-kpi-main{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .rp-main td,.rp-table thead th,.rp-tag{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -338,6 +344,7 @@ label.is-empty input,label.is-empty .thd select{border-color:var(--warn)}
 .close-confirm{display:flex!important;gap:10px;align-items:flex-start;font-weight:400;padding:12px;border-radius:var(--r-sm);background:var(--orange-soft)}
 .close-confirm input{width:auto;margin-top:5px}
 td .btn{white-space:nowrap}
+.print-only{display:none}
 .install-bar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--surface);border:1.5px solid var(--teal);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 24px rgba(180,83,11,.2);max-width:560px;margin-inline:auto}
 .install-bar img{width:44px;height:44px;border-radius:10px}
 .install-bar p{margin:0;font-size:.92rem;line-height:1.5;flex:1}
