@@ -1,0 +1,55 @@
+{
+  "name": "ทีมที่ปรึกษาดูแลดี ตัวแทนประกันชีวิต FWD",
+  "short_name": "ทีมดูแลดี",
+  "description": "ดูกรมธรรม์ กำหนดชำระเบี้ย สถานะเคลม และติดต่อตัวแทนของคุณ",
+  "lang": "th",
+  "id": "./",
+  "start_url": "./#/login",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E97925",
+  "theme_color": "#0F4C47",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "กรมธรรม์ของฉัน",
+      "url": "./#/portal",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "แดชบอร์ดตัวแทน",
+      "url": "./#/dashboard",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
