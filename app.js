@@ -543,20 +543,41 @@ function portalTab(tab, d, upcoming) {
    ========================================================= */
 async function renderDashboard() {
   if (!requireRole("agent")) return;
-  const d = await Api.call("agentData", { token: State.session.token });
+  const full = await Api.call("agentData", { token: State.session.token });
   let tab = "today", filter = "ทั้งหมด", q = "";
-  const custById = Object.fromEntries(d.customers.map(c => [c.id, c]));
-  const agentById = Object.fromEntries(d.agents.map(a => [a.id, a]));
+  // หัวหน้าทีมสลับได้ 2 มุมมอง: "team" = เห็นทั้งทีม, "mine" = ทำงานขายเองเหมือนลูกทีมคนหนึ่ง
+  let mode = full.leader ? (store.get("dashMode") || "team") : "mine";
+  const custById = Object.fromEntries(full.customers.map(c => [c.id, c]));
+  const agentById = Object.fromEntries(full.agents.map(a => [a.id, a]));
+
+  // กรองข้อมูลเหลือเฉพาะลูกค้าของตัวเอง + ลูกค้าที่ตัวเองเป็นตัวแทนสำรอง
+  const scope = () => {
+    if (!full.leader || mode === "team") return full;
+    const ids = new Set([full.me.id, ...full.agents.filter(a => a.backup_id === full.me.id).map(a => a.id)]);
+    const customers = full.customers.filter(c => ids.has(c.agent_id));
+    const cids = new Set(customers.map(c => c.id));
+    const policies = full.policies.filter(p => cids.has(p.customer_id));
+    const nos = new Set(policies.map(p => p.policy_no));
+    return { ...full, leader: false, customers, policies,
+      tickets: full.tickets.filter(t => cids.has(t.customer_id)),
+      claims: full.claims.filter(c => nos.has(c.policy_no)) };
+  };
 
   const view = () => {
+    const d = scope();
+    if (tab === "team" && !d.leader) tab = "today";
     const due = d.policies.filter(p => daysUntil(p.next_due) <= CONFIG.REMIND_DAYS).sort((a, b) => new Date(a.next_due) - new Date(b.next_due));
     const pending = d.tickets.filter(t => t.status === "รอตอบ");
     const leads = d.customers.filter(c => c.type === "ลูกค้ามุ่งหวัง");
     const tabs = [["today", "งานวันนี้"], ["customers", "ลูกค้า"], ["claims", "เคลม"], ...(d.leader ? [["team", "ภาพรวมทีม"]] : [])];
 
     app.innerHTML = `<div class="wrap">
-      <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">${esc(d.me.name)}</h1><span class="muted small">${esc(d.me.role)}${d.leader ? ", เห็นข้อมูลทั้งทีม" : ""}</span></div>
-      <button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div>
+      <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">${esc(d.me.name)}</h1><span class="muted small">${esc(d.me.role)}${full.leader ? (mode === "team" ? ", กำลังดูข้อมูลทั้งทีม" : ", กำลังดูเฉพาะลูกค้าของคุณ") : ""}</span></div>
+      <div class="btn-row" style="align-items:center">
+        ${full.leader ? `<div class="seg" role="group" aria-label="เลือกมุมมอง">
+          <button type="button" data-mode="team" aria-pressed="${mode === "team"}">มุมมองหัวหน้าทีม</button>
+          <button type="button" data-mode="mine" aria-pressed="${mode === "mine"}">งานขายของฉัน</button></div>` : ""}
+        <button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div></div>
       <div class="kpis">
         <div class="kpi"><b>${d.customers.filter(c => c.type === "ลูกค้า").length}</b>ลูกค้าที่ดูแล</div>
         <div class="kpi"><b>${leads.length}</b>ลูกค้ามุ่งหวัง</div>
@@ -613,6 +634,7 @@ async function renderDashboard() {
     }
 
     $("#logout").onclick = logout;
+    app.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; store.set("dashMode", mode); view(); });
     app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; view(); });
     app.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { filter = b.dataset.filter; view(); });
     const s = $("#search"); if (s) s.oninput = (e) => { q = e.target.value.trim(); clearTimeout(s._t); s._t = setTimeout(() => { view(); const n = $("#search"); n.focus(); n.setSelectionRange(q.length, q.length); }, 250); };
@@ -625,7 +647,8 @@ async function renderDashboard() {
       const name = $("#lName").value.trim(), phone = $("#lPhone").value.replace(/\D/g, ""), note = $("#lNote").value.trim();
       if (!name || !phone) { toast("กรอกชื่อและเบอร์โทร"); return; }
       await Api.call("addLead", { token: State.session.token, name, phone, note });
-      d.customers.push({ id: "new" + Date.now(), name, phone, note, type: "ลูกค้ามุ่งหวัง", agent_id: d.me.id });
+      const lead = { id: "new" + Date.now(), name, phone, note, type: "ลูกค้ามุ่งหวัง", agent_id: full.me.id };
+      full.customers.push(lead); custById[lead.id] = lead;
       toast("เพิ่มลูกค้ามุ่งหวังแล้ว"); view();
     };
   };
