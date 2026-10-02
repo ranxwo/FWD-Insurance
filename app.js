@@ -24,8 +24,20 @@ const CONFIG = {
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const baht = (n) => Number(n || 0).toLocaleString("th-TH") + " บาท";
-const thDate = (d) => d ? new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) : "-";
-const daysUntil = (d) => Math.ceil((new Date(d).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / 86400000);
+/* มาตรฐานการแสดงวันที่ของทั้งเว็บ: เดือนภาษาไทย ปี พ.ศ.
+   ข้อมูลใน Google Sheet เก็บเป็น ค.ศ. (yyyy-mm-dd) แล้วแปลงตอนแสดงผลเท่านั้น
+   หน้าเว็บหรือรายงานใหม่ ให้ใช้ thDate (แบบย่อ: 11 ต.ค. 2569) หรือ thDateLong (แบบเต็ม: 11 ตุลาคม 2569) เสมอ */
+const TH_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const TH_MONTHS_LONG = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+const parseDate = (d) => { // อ่าน yyyy-mm-dd เป็นวันที่ท้องถิ่น ไม่ให้เลื่อนวันตามเขตเวลา
+  const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
+};
+const thDateFmt = (d, months) => { if (!d) return "-"; const x = parseDate(d); if (isNaN(x)) return "-"; return `${x.getDate()} ${months[x.getMonth()]} ${x.getFullYear() + 543}`; };
+const thDate = (d) => thDateFmt(d, TH_MONTHS_SHORT);
+const thDateLong = (d) => thDateFmt(d, TH_MONTHS_LONG);
+const thMonthYear = (d) => { const x = parseDate(d); return isNaN(x) ? "-" : `${TH_MONTHS_LONG[x.getMonth()]} ${x.getFullYear() + 543}`; };
+const daysUntil = (d) => Math.round((parseDate(d).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / 86400000);
 const isoIn = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 const initials = (name) => (String(name || "?").replace(/^(คุณ|นาย|นาง|นางสาว)\s*/, "").trim()[0] || "?");
 const store = {
@@ -85,6 +97,42 @@ const addMonths = (iso, m) => { // บวกเดือนแบบไม่ล
   return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 };
 const options = (list, cur, blank) => (blank ? `<option value="">${blank}</option>` : "") + list.map(v => `<option ${v === cur ? "selected" : ""}>${esc(v)}</option>`).join("");
+/* ช่องเลือกวันที่แบบไทย: วัน / เดือน / ปี พ.ศ.
+   แสดงเป็น พ.ศ. แต่เก็บค่าเป็น ค.ศ. (yyyy-mm-dd) ในช่องซ่อน id เดิม โค้ดส่วนอื่นจึงอ่านค่าได้เหมือนเดิม */
+const TH_MONTHS = TH_MONTHS_LONG;
+function thaiDate(id, iso, { back = 100, ahead = 0, extra = "" } = {}) {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  const nowBE = new Date().getFullYear() + 543;
+  const years = []; for (let v = nowBE + ahead; v >= nowBE - back; v--) years.push(v);
+  if (y && !years.includes(y + 543)) years.push(y + 543);
+  const opt = (v, label, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${label}</option>`;
+  return `<span class="thd" data-thd="${id}">
+    <select data-p="d" aria-label="วันที่"><option value="">วัน</option>${Array.from({ length: 31 }, (_, i) => opt(i + 1, i + 1, d)).join("")}</select>
+    <select data-p="m" aria-label="เดือน"><option value="">เดือน</option>${TH_MONTHS.map((n, i) => opt(i + 1, n, m)).join("")}</select>
+    <select data-p="y" aria-label="ปี พ.ศ."><option value="">ปี พ.ศ.</option>${years.map(v => opt(v, v, y ? y + 543 : 0)).join("")}</select>
+    <input type="hidden" id="${id}" value="${esc(iso || "")}" ${extra}>
+  </span>`;
+}
+function thaiDateSet(id, iso) { // ตั้งค่าจากโค้ด (เช่น เติมวันครบกำหนดอัตโนมัติ)
+  const box = document.querySelector(`[data-thd="${id}"]`); if (!box) return;
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  const yrSel = box.querySelector('[data-p="y"]');
+  if (y && !yrSel.querySelector(`option[value="${y + 543}"]`)) yrSel.insertAdjacentHTML("beforeend", `<option value="${y + 543}">${y + 543}</option>`);
+  box.querySelector('[data-p="d"]').value = d || ""; box.querySelector('[data-p="m"]').value = m || ""; yrSel.value = y ? y + 543 : "";
+  box.querySelector("input").value = iso || "";
+}
+document.addEventListener("change", (e) => {
+  const box = e.target.closest && e.target.closest("[data-thd]"); if (!box || e.target.tagName !== "SELECT") return;
+  const get = (p) => Number(box.querySelector(`[data-p="${p}"]`).value || 0);
+  let d = get("d"); const m = get("m"), yBE = get("y");
+  const hidden = box.querySelector("input");
+  if (d && m && yBE) {
+    const y = yBE - 543, last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    if (d > last) { d = last; box.querySelector('[data-p="d"]').value = d; } // เช่น 31 ก.พ. ปรับเป็น 28/29
+    hidden.value = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  } else hidden.value = "";
+  hidden.dispatchEvent(new Event("input")); hidden.dispatchEvent(new Event("change"));
+});
 const lineShare = (text) => "https://line.me/R/msg/text/?" + encodeURIComponent(text);
 
 /* =========================================================
@@ -853,7 +901,7 @@ async function renderDashboard() {
       return `<div class="pf-grid">
         <label>ชื่อ-นามสกุล<input id="${px}Name" value="${esc(c.name || "")}"></label>
         <label>เบอร์โทร<input id="${px}Phone" value="${esc(c.phone || "")}" inputmode="tel"></label>
-        <label>วันเกิด<input id="${px}Birth" type="date" value="${esc(c.birthday || "")}" max="${isoIn(0)}" data-age-out="${px}Age"></label>
+        <label>วันเกิด${thaiDate(px + "Birth", c.birthday, { back: 100, extra: `data-age-out="${px}Age"` })}</label>
         <label>อายุ<output id="${px}Age" class="calc">${age != null ? age + " ปี" : "คำนวณจากวันเกิด"}</output></label>
         <label>เพศ<select id="${px}Gender">${options(GENDERS, c.gender, "เลือก")}</select></label>
         <label>อาชีพ<input id="${px}Occ" value="${esc(c.occupation || "")}" placeholder="เช่น พนักงานบริษัท, ค้าขาย"></label>
@@ -890,11 +938,11 @@ async function renderDashboard() {
           <label>เบี้ยต่องวด (บาท)<input id="pPrem" type="number" min="0" value="${esc(p.premium || "")}" inputmode="numeric"></label>
           <label>งวดการชำระ<select id="pMode">${options(MODES, p.mode || "รายปี")}</select></label>
           <label>เบี้ยต่อปี<output id="pAnnual" class="calc">${p.premium ? baht(annualPremium(p)) : "-"}</output></label>
-          <label>วันเริ่มคุ้มครอง<input id="pStart" type="date" value="${esc(p.start_date || "")}"></label>
-          <label>ครบกำหนดชำระงวดถัดไป<input id="pDue" type="date" value="${esc(p.next_due || "")}"></label>
+          <label>วันเริ่มคุ้มครอง${thaiDate("pStart", p.start_date, { back: 40, ahead: 1 })}</label>
+          <label>ครบกำหนดชำระงวดถัดไป${thaiDate("pDue", p.next_due, { back: 5, ahead: 3 })}</label>
           <label>สถานะ<select id="pStatus">${options(POLICY_STATUS, p.status || "รออนุมัติ")}</select></label>
           <label>ระยะเวลาชำระเบี้ย (ปี)<input id="pYears" type="number" min="0" value="${esc(p.payment_years || "")}"></label>
-          <label>คุ้มครองถึงวันที่<input id="pEnd" type="date" value="${esc(p.coverage_end || "")}"></label>
+          <label>คุ้มครองถึงวันที่${thaiDate("pEnd", p.coverage_end, { back: 0, ahead: 100 })}</label>
           <label>ผู้รับผลประโยชน์<input id="pBen" value="${esc(p.beneficiary || "")}" placeholder="ชื่อ และความสัมพันธ์"></label>
           <label class="pf-wide">สัญญาเพิ่มเติม<input id="pRiders" value="${esc(p.riders || "")}" placeholder="เช่น ค่ารักษาผู้ป่วยนอก, อุบัติเหตุ"></label>
           <label class="pf-wide">หมายเหตุ (ลูกค้าไม่เห็น)<input id="pNote" value="${esc(p.note || "")}"></label>
@@ -905,7 +953,7 @@ async function renderDashboard() {
 
       const payForm = (p) => `<div class="pay-box"><h4>บันทึกการชำระเบี้ย</h4>
         <div class="pf-grid">
-          <label>วันที่ชำระ<input id="payDate" type="date" value="${isoIn(0)}" max="${isoIn(0)}"></label>
+          <label>วันที่ชำระ${thaiDate("payDate", isoIn(0), { back: 2 })}</label>
           <label>จำนวนเงิน (บาท)<input id="payAmt" type="number" min="0" value="${esc(p.premium || "")}"></label>
           <label class="pf-wide">ช่องทาง<select id="payCh">${options(PAY_CHANNELS, "แอปหรือเว็บไซต์บริษัท")}</select></label>
         </div>
@@ -973,7 +1021,7 @@ async function renderDashboard() {
             ${form === "claim" ? `<div class="pay-box"><div class="pf-grid">
               <label>กรมธรรม์<select id="clPol">${pols.map(p => `<option value="${esc(p.policy_no)}">${esc(p.policy_no)} ${esc(p.plan)}</option>`).join("")}</select></label>
               <label>ประเภท<select id="clType">${options(CLAIM_TYPES, "ผู้ป่วยใน")}</select></label>
-              <label>วันที่ยื่น<input id="clDate" type="date" value="${isoIn(0)}"></label>
+              <label>วันที่ยื่น${thaiDate("clDate", isoIn(0), { back: 3 })}</label>
               <label>จำนวนเงิน (บาท)<input id="clAmt" type="number" min="0"></label>
               <label class="pf-wide">หมายเหตุ (ลูกค้าเห็น)<input id="clNote" placeholder="เช่น รอใบรับรองแพทย์ฉบับจริง"></label></div>
               <div class="btn-row" style="margin-top:12px"><button class="btn btn-primary btn-sm" id="clSave" type="button">บันทึกการเคลม</button><button class="btn btn-ghost btn-sm" data-close-form type="button">ยกเลิก</button></div></div>` : ""}
@@ -991,7 +1039,7 @@ async function renderDashboard() {
       const prem = $("#pPrem"), mode = $("#pMode");
       if (prem) { const upd = () => { $("#pAnnual").textContent = prem.value ? baht(annualPremium({ premium: prem.value, mode: mode.value })) : "-"; }; prem.oninput = upd; mode.onchange = upd; }
       const start = $("#pStart"), due = $("#pDue");
-      if (start && due) start.onchange = () => { if (!due.value && start.value) due.value = addMonths(start.value, MODE_MONTHS[mode.value] || 12); };
+      if (start && due) start.onchange = () => { if (!due.value && start.value) thaiDateSet("pDue", addMonths(start.value, MODE_MONTHS[mode.value] || 12)); };
     }
 
     function bindCustomer() {
