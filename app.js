@@ -1182,7 +1182,6 @@ async function renderInstall() {
 
 /* ---------- boot ---------- */
 $("#brandName").firstChild.textContent = CONFIG.TEAM_NAME;
-$("#brandMark").textContent = initials(CONFIG.TEAM_NAME.replace(/^ทีม/, ""));
 $("#menuBtn").onclick = () => { const n = $("#nav"); const open = n.classList.toggle("open"); $("#menuBtn").setAttribute("aria-expanded", String(open)); };
 window.addEventListener("hashchange", router);
 router();
