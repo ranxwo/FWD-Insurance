@@ -127,16 +127,25 @@ const Api = {
   live: () => !!CONFIG.SHEET_API_URL,
 
   async call(action, payload = {}) {
-    if (!this.live()) return DemoApi[action](payload);
-    // ใช้ text/plain เพื่อหลีกเลี่ยง CORS preflight ของ Apps Script
-    const res = await fetch(CONFIG.SHEET_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, ...payload })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    return data;
+    try {
+      if (!this.live()) return await DemoApi[action](payload);
+      // ใช้ text/plain เพื่อหลีกเลี่ยง CORS preflight ของ Apps Script
+      const res = await fetch(CONFIG.SHEET_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action, ...payload })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data;
+    } catch (e) {
+      // เซสชันใช้ไม่ได้แล้ว: ล้างการล็อกอินเดิม แล้วพาไปหน้าเข้าสู่ระบบ
+      if (/เซสชัน|ไม่มีสิทธิ์/.test(e.message) && State.session) {
+        State.session = null; store.del("session"); State.loginNotice = e.message;
+        a11yNavMember(); location.hash = "#/login";
+      }
+      throw e;
+    }
   }
 };
 
@@ -212,7 +221,11 @@ const DemoApi = {
 /* =========================================================
    STATE + ROUTER
    ========================================================= */
-const State = { pub: null, session: store.get("session") };
+const State = { pub: null, session: store.get("session"), loginNotice: "" };
+// ล็อกอินที่ค้างมาจากโหมดตัวอย่าง ใช้กับ Google Sheet จริงไม่ได้ ล้างทิ้งอัตโนมัติ
+if (CONFIG.SHEET_API_URL && State.session && String(State.session.token).startsWith("demo-")) {
+  State.session = null; store.del("session");
+}
 const app = $("#app");
 
 async function loadPublic() {
@@ -407,6 +420,7 @@ function renderLogin() {
   let role = "customer";
   app.innerHTML = `<section class="block"><div class="wrap">
     <h1>เข้าสู่ระบบสมาชิก</h1>
+    ${State.loginNotice ? `<div class="notice" style="margin-bottom:16px">${esc(State.loginNotice)}</div>` : ""}
     <div class="seg" role="group" aria-label="ประเภทสมาชิก" style="margin:12px 0 24px">
       <button type="button" data-role="customer" aria-pressed="true">ลูกค้า</button>
       <button type="button" data-role="agent" aria-pressed="false">ตัวแทน</button>
@@ -433,7 +447,7 @@ function renderLogin() {
     $("#loginBtn").disabled = true; $("#loginBtn").textContent = "กำลังตรวจสอบ…";
     try {
       const s = await Api.call("login", { role, username, password_hash: await sha256(pw) });
-      State.session = s; store.set("session", s);
+      State.session = s; store.set("session", s); State.loginNotice = "";
       location.hash = s.role === "agent" ? "#/dashboard" : "#/portal";
     } catch (e) {
       $("#loginErr").textContent = e.message;
