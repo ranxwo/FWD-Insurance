@@ -45,7 +45,7 @@ function avatar(p, size = "") {
 }
 function statusBadge(s) {
   const map = {
-    "มีผลบังคับ": "b-ok", "พร้อมดูแล": "b-ok", "ชำระแล้ว": "b-ok", "อนุมัติ": "b-ok", "ตอบแล้ว": "b-ok", "ปิดเรื่อง": "b-ok",
+    "มีผลบังคับ": "b-ok", "พร้อมดูแล": "b-ok", "ผ่าน": "b-ok", "ชำระแล้ว": "b-ok", "อนุมัติ": "b-ok", "ตอบแล้ว": "b-ok", "ปิดเรื่อง": "b-ok",
     "รอชำระ": "b-warn", "รออนุมัติ": "b-warn", "ยกเลิก": "b-bad", "รอพิจารณา": "b-warn", "รอเอกสาร": "b-warn", "รอตอบ": "b-warn", "ลูกค้ามุ่งหวัง": "b-info",
     "ขาดอายุ": "b-bad", "ไม่อนุมัติ": "b-bad", "เลยกำหนด": "b-bad"
   };
@@ -308,7 +308,8 @@ const routes = {
   "faq": renderFaq,
   "login": renderLogin,
   "portal": renderPortal,
-  "dashboard": renderDashboard
+  "dashboard": renderDashboard,
+  "install": renderInstall
 };
 
 async function router() {
@@ -1095,14 +1096,16 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 const PWA = {
   deferred: null,
   standalone: () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
+  inApp: () => { const u = navigator.userAgent; return /Line\//i.test(u) ? "LINE" : /FBAN|FBAV|FB_IAB/i.test(u) ? "Facebook" : /Instagram/i.test(u) ? "Instagram" : ""; },
+  isAndroid: () => /android/i.test(navigator.userAgent),
   isIOS: () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
   dismissed: () => { const t = store.get("installDismissed"); return t && Date.now() - t < 14 * 86400000; },
-  show(html, onInstall) {
+  show(html, onInstall, label = "ติดตั้ง") {
     if (this.standalone() || this.dismissed() || $(".install-bar")) return;
     const bar = document.createElement("div");
     bar.className = "install-bar"; bar.setAttribute("role", "dialog"); bar.setAttribute("aria-label", "ติดตั้งแอป");
     bar.innerHTML = `<img src="icons/icon-192.png" alt=""><p>${html}</p>
-      ${onInstall ? `<button class="btn btn-primary btn-sm" id="pwaInstall">ติดตั้ง</button>` : ""}
+      ${onInstall ? `<button class="btn btn-primary btn-sm" id="pwaInstall">${label}</button>` : ""}
       <button class="x" id="pwaClose" aria-label="ปิด">×</button>`;
     document.body.appendChild(bar);
     $("#pwaClose").onclick = () => { store.set("installDismissed", Date.now()); bar.remove(); };
@@ -1119,8 +1122,62 @@ window.addEventListener("beforeinstallprompt", (e) => {
 });
 window.addEventListener("appinstalled", () => { $(".install-bar")?.remove(); toast("ติดตั้งแอปแล้ว"); });
 // iPhone / iPad: Safari ไม่มีปุ่มติดตั้งอัตโนมัติ จึงแสดงวิธีทำ
-if (PWA.isIOS() && !PWA.standalone()) {
+// เปิดลิงก์จาก LINE/Facebook จะเปิดในเบราว์เซอร์ของแอปนั้น ซึ่งติดตั้งแอปไม่ได้
+if (PWA.inApp() && !PWA.standalone()) {
+  setTimeout(() => PWA.show(`<b>เปิดใน ${PWA.isIOS() ? "Safari" : "Chrome"} เพื่อติดตั้งแอป</b><br>เบราว์เซอร์ใน ${PWA.inApp()} ติดตั้งแอปไม่ได้`,
+    PWA.inApp() === "LINE" ? () => { const u = new URL(location.href); u.searchParams.set("openExternalBrowser", "1"); location.href = u.toString(); } : null, "เปิด"), 1500);
+} else if (PWA.isIOS() && !PWA.standalone()) {
   setTimeout(() => PWA.show("<b>ติดตั้งแอปบน iPhone/iPad</b><br>แตะปุ่มแชร์ (สี่เหลี่ยมมีลูกศรขึ้น) แล้วเลือก \"เพิ่มไปยังหน้าจอโฮม\""), 2500);
+}
+
+
+/* =========================================================
+   หน้า "ติดตั้งแอป" + ตรวจสอบอัตโนมัติว่าทำไมติดตั้งไม่ได้
+   ========================================================= */
+async function renderInstall() {
+  const ios = PWA.isIOS(), android = PWA.isAndroid(), inApp = PWA.inApp();
+  app.innerHTML = `<section class="block"><div class="wrap article">
+    <h1>ติดตั้งแอปบนมือถือ</h1>
+    ${PWA.standalone() ? `<div class="notice">คุณกำลังใช้งานในแอปที่ติดตั้งแล้ว</div>` : ""}
+    ${inApp ? `<div class="notice" style="margin-bottom:20px"><b>ตอนนี้เปิดอยู่ในเบราว์เซอร์ของ ${inApp}</b> ซึ่งติดตั้งแอปไม่ได้ ${inApp === "LINE" ? `<br><button class="btn btn-primary btn-sm" id="openExt" style="margin-top:10px">เปิดใน ${ios ? "Safari" : "Chrome"}</button>` : `ให้กดเมนู (จุดสามจุด) แล้วเลือก "เปิดในเบราว์เซอร์"`}</div>` : ""}
+    ${PWA.deferred ? `<button class="btn btn-primary" id="doInstall" style="margin-bottom:24px">ติดตั้งแอปตอนนี้</button>` : ""}
+
+    <div class="panel" ${ios ? 'style="border-color:var(--teal)"' : ""}><h3>iPhone / iPad</h3><ol>
+      <li>เปิดเว็บนี้ด้วย <b>Safari</b> (ถ้าเปิดจาก LINE ให้กดเปิดใน Safari ก่อน)</li>
+      <li>แตะปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศรชี้ขึ้น) ด้านล่างหรือด้านบนของจอ</li>
+      <li>เลื่อนลงแล้วเลือก <b>เพิ่มไปยังหน้าจอโฮม</b> (Add to Home Screen)</li>
+      <li>แตะ <b>เพิ่ม</b> มุมขวาบน ไอคอนจะขึ้นที่หน้าจอโฮม</li></ol></div>
+
+    <div class="panel" ${android ? 'style="border-color:var(--teal)"' : ""}><h3>Android</h3><ol>
+      <li>เปิดเว็บนี้ด้วย <b>Chrome</b></li>
+      <li>แตะเมนู <b>จุดสามจุด</b> มุมขวาบน</li>
+      <li>เลือก <b>ติดตั้งแอป</b> หรือ <b>เพิ่มลงในหน้าจอหลัก</b></li>
+      <li>แตะ <b>ติดตั้ง</b> ไอคอนจะขึ้นที่หน้าจอหลักและในรายการแอป</li></ol></div>
+
+    <div class="panel"><h3>ตรวจสอบระบบ</h3><p class="small muted">ถ้าติดตั้งไม่ได้ ส่งภาพหน้าจอส่วนนี้ให้ผู้ดูแลเว็บ</p>
+      <ul id="diag" style="list-style:none;padding:0;margin:0"><li class="muted">กำลังตรวจสอบ…</li></ul></div>
+  </div></section>`;
+
+  const ext = $("#openExt"); if (ext) ext.onclick = () => { const u = new URL(location.href); u.searchParams.set("openExternalBrowser", "1"); location.href = u.toString(); };
+  const di = $("#doInstall"); if (di) di.onclick = async () => { PWA.deferred.prompt(); await PWA.deferred.userChoice; PWA.deferred = null; di.remove(); };
+
+  const checks = [];
+  const add = (ok, label, fix) => checks.push(`<li style="padding:8px 0;border-bottom:1px dashed var(--line)">${ok ? statusBadge("ผ่าน") : `<span class="badge b-bad">ไม่ผ่าน</span>`} ${label}${!ok && fix ? `<br><span class="small muted">${fix}</span>` : ""}</li>`);
+  const fileOk = async (url, type) => { try { const r = await fetch(url, { cache: "no-store" }); return r.ok && (!type || (r.headers.get("content-type") || "").includes(type)); } catch { return false; } };
+
+  add(location.protocol === "https:", "เปิดผ่าน https", "ต้องเปิดผ่านลิงก์ GitHub Pages ที่ขึ้นต้นด้วย https://");
+  add(!inApp, "เปิดในเบราว์เซอร์หลัก (ไม่ใช่ใน LINE/Facebook)", "กดปุ่มเปิดใน Chrome/Safari ด้านบน");
+  let manifest = null;
+  try { const r = await fetch("manifest.json", { cache: "no-store" }); if (r.ok) manifest = await r.json(); } catch {}
+  add(!!manifest, "พบไฟล์ manifest.json", "อัปไฟล์ manifest.json ไว้ที่เดียวกับ index.html");
+  for (const f of ["icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"]) {
+    add(await fileOk(f, "image"), "พบไอคอน " + f, "ต้องมีโฟลเดอร์ชื่อ icons (ตัวเล็กทั้งหมด) อยู่ที่เดียวกับ index.html และมีไฟล์นี้อยู่ข้างใน");
+  }
+  add(await fileOk("sw.js", "javascript"), "พบไฟล์ sw.js", "อัปไฟล์ sw.js ไว้ที่เดียวกับ index.html");
+  let swOk = false;
+  try { swOk = !!(navigator.serviceWorker && await navigator.serviceWorker.getRegistration()); } catch {}
+  add(swOk, "Service Worker ทำงาน", "รีเฟรชหน้านี้ 1 ครั้งแล้วตรวจใหม่ ถ้ายังไม่ผ่านให้เช็กว่ามีไฟล์ sw.js");
+  $("#diag").innerHTML = checks.join("");
 }
 
 /* ---------- boot ---------- */
