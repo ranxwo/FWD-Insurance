@@ -1104,7 +1104,7 @@ const PWA = {
     if (this.standalone() || this.dismissed() || $(".install-bar")) return;
     const bar = document.createElement("div");
     bar.className = "install-bar"; bar.setAttribute("role", "dialog"); bar.setAttribute("aria-label", "ติดตั้งแอป");
-    bar.innerHTML = `<img src="icons/icon-192.png" alt=""><p>${html}</p>
+    bar.innerHTML = `<img src="icon-192.png" alt=""><p>${html}</p>
       ${onInstall ? `<button class="btn btn-primary btn-sm" id="pwaInstall">${label}</button>` : ""}
       <button class="x" id="pwaClose" aria-label="ปิด">×</button>`;
     document.body.appendChild(bar);
@@ -1170,8 +1170,8 @@ async function renderInstall() {
   let manifest = null;
   try { const r = await fetch("manifest.json", { cache: "no-store" }); if (r.ok) manifest = await r.json(); } catch {}
   add(!!manifest, "พบไฟล์ manifest.json", "อัปไฟล์ manifest.json ไว้ที่เดียวกับ index.html");
-  for (const f of ["icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"]) {
-    add(await fileOk(f, "image"), "พบไอคอน " + f, "ต้องมีโฟลเดอร์ชื่อ icons (ตัวเล็กทั้งหมด) อยู่ที่เดียวกับ index.html และมีไฟล์นี้อยู่ข้างใน");
+  for (const f of ["icon-192.png", "icon-512.png", "apple-touch-icon.png"]) {
+    add(await fileOk(f, "image"), "พบไอคอน " + f, "อัปไฟล์ไอคอนนี้ไว้ที่เดียวกับ index.html (ชื่อไฟล์ตัวเล็กทั้งหมด)");
   }
   add(await fileOk("sw.js", "javascript"), "พบไฟล์ sw.js", "อัปไฟล์ sw.js ไว้ที่เดียวกับ index.html");
   let swOk = false;
