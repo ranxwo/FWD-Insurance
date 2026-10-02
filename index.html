@@ -106,7 +106,10 @@ p{margin:0 0 1em;max-width:68ch}
 .btn-row{display:flex;flex-wrap:wrap;gap:10px}
 
 /* hero */
-.hero{padding:56px 0 64px;background:var(--orange);color:#fff}
+.hero{padding:56px 0 64px;color:#fff;
+  /* ภาพพื้นหลังเบลอ + ชั้นสีส้มทับ ให้ตัวอักษรสีขาวอ่านชัด (ด้านซ้ายที่มีข้อความเข้มกว่า) */
+  background:linear-gradient(90deg,rgba(150,64,6,.86) 0%,rgba(200,92,20,.66) 45%,rgba(232,119,34,.25) 100%),url("hero-bg.jpg") center/cover no-repeat,var(--orange)}
+@media (max-width:860px){.hero{background:linear-gradient(180deg,rgba(150,64,6,.86) 0%,rgba(200,92,20,.72) 55%,rgba(232,119,34,.45) 100%),url("hero-bg.jpg") center/cover no-repeat,var(--orange)}}
 .hero h1{color:#fff}
 .hero .btn-primary{background:#fff;color:var(--orange-dark)}
 .hero .btn-primary:hover{background:#FFF1E4}
@@ -232,6 +235,8 @@ footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-s
 .pf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
 .pf-grid .pf-wide{grid-column:1/-1}
 @media (max-width:600px){.pf-grid{grid-template-columns:1fr}}
+.thd{display:grid;grid-template-columns:minmax(64px,.7fr) minmax(110px,1.5fr) minmax(84px,1fr);gap:8px}
+.thd select{padding:11px 8px}
 output.calc{display:block;padding:11px 14px;border-radius:var(--r-sm);background:var(--teal-soft);color:var(--teal);font-weight:600;min-height:48px}
 .cust-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px}
 .close-sale{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;border-left:5px solid var(--orange);background:var(--orange-soft)}
