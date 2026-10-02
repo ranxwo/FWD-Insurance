@@ -5,6 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
+const REQUIRED_API = "2026-10-03b"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 const CONFIG = {
   SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
@@ -686,6 +687,7 @@ function renderPassword() {
 async function renderPortal() {
   if (!requireRole("customer")) return;
   const d = await Api.call("customerData", { token: State.session.token });
+  if (!d || !d.me) { logout("ไม่พบข้อมูลบัญชีของคุณ กรุณาเข้าสู่ระบบใหม่"); return; }
   const upcoming = [...d.policies].filter(p => p.next_due).sort((a, b) => new Date(a.next_due) - new Date(b.next_due))[0];
   let tab = "overview";
 
@@ -775,6 +777,7 @@ function portalTab(tab, d, upcoming) {
 async function renderDashboard() {
   if (!requireRole("agent")) return;
   const full = await Api.call("agentData", { token: State.session.token });
+  if (!full || !full.me) { logout("ไม่พบข้อมูลบัญชีของคุณ กรุณาเข้าสู่ระบบใหม่"); return; }
   let tab = "today", filter = "ทั้งหมด", q = "", editId = null;
   let agentFilter = { text: "", role: "", onlyInc: false }; // จำคำค้นหาไว้ระหว่างแก้ไขข้อมูล
   // หน้ารายละเอียดลูกค้า: custId = ลูกค้าที่เปิดอยู่, form = ฟอร์มที่เปิดอยู่ ("policy" | "pay" | "claim"), formKey = เลขกรมธรรม์ที่แก้/ชำระ
@@ -1327,6 +1330,11 @@ async function renderInstall() {
   let swOk = false;
   try { swOk = !!(navigator.serviceWorker && await navigator.serviceWorker.getRegistration()); } catch {}
   add(swOk, "Service Worker ทำงาน", "รีเฟรชหน้านี้ 1 ครั้งแล้วตรวจใหม่ ถ้ายังไม่ผ่านให้เช็กว่ามีไฟล์ sw.js");
+  if (Api.live()) {
+    let ver = ""; try { State.pub = null; ver = (await loadPublic()).api_version || ""; } catch {}
+    add(ver >= REQUIRED_API, "หลังบ้าน (Code.gs) เป็นเวอร์ชันล่าสุด" + (ver ? " (" + ver + ")" : ""),
+      "วาง Code.gs ล่าสุดใน Apps Script แล้วกด จัดการการทำให้ใช้งานได้ > ไอคอนดินสอ > เวอร์ชันใหม่ > ทำให้ใช้งานได้");
+  }
   $("#diag").innerHTML = checks.join("");
 }
 
