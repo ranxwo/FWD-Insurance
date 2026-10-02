@@ -6,7 +6,7 @@
    ========================================================= */
 
 const CONFIG = {
-  SHEET_API_URL: "",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
+  SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
   TEAM_SUBTITLE: "ตัวแทนประกันชีวิต FWD",
   TEAM_LINE_OA: "https://line.me/R/ti/p/@yourteam",   // LINE OA ของทีม
@@ -653,6 +653,44 @@ async function renderDashboard() {
     };
   };
   view();
+}
+
+
+/* =========================================================
+   PWA — ติดตั้งเป็นแอปบนมือถือ
+   ========================================================= */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+const PWA = {
+  deferred: null,
+  standalone: () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
+  isIOS: () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+  dismissed: () => { const t = store.get("installDismissed"); return t && Date.now() - t < 14 * 86400000; },
+  show(html, onInstall) {
+    if (this.standalone() || this.dismissed() || $(".install-bar")) return;
+    const bar = document.createElement("div");
+    bar.className = "install-bar"; bar.setAttribute("role", "dialog"); bar.setAttribute("aria-label", "ติดตั้งแอป");
+    bar.innerHTML = `<img src="icons/icon-192.png" alt=""><p>${html}</p>
+      ${onInstall ? `<button class="btn btn-primary btn-sm" id="pwaInstall">ติดตั้ง</button>` : ""}
+      <button class="x" id="pwaClose" aria-label="ปิด">×</button>`;
+    document.body.appendChild(bar);
+    $("#pwaClose").onclick = () => { store.set("installDismissed", Date.now()); bar.remove(); };
+    if (onInstall) $("#pwaInstall").onclick = onInstall;
+  }
+};
+// Android / Chrome / Edge: ใช้ปุ่มติดตั้งของระบบ
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault(); PWA.deferred = e;
+  PWA.show("<b>ติดตั้งแอปไว้ที่หน้าจอ</b><br>เปิดดูกรมธรรม์และติดต่อตัวแทนได้ในแตะเดียว", async () => {
+    PWA.deferred.prompt();
+    await PWA.deferred.userChoice; PWA.deferred = null; $(".install-bar")?.remove();
+  });
+});
+window.addEventListener("appinstalled", () => { $(".install-bar")?.remove(); toast("ติดตั้งแอปแล้ว"); });
+// iPhone / iPad: Safari ไม่มีปุ่มติดตั้งอัตโนมัติ จึงแสดงวิธีทำ
+if (PWA.isIOS() && !PWA.standalone()) {
+  setTimeout(() => PWA.show("<b>ติดตั้งแอปบน iPhone/iPad</b><br>แตะปุ่มแชร์ (สี่เหลี่ยมมีลูกศรขึ้น) แล้วเลือก \"เพิ่มไปยังหน้าจอโฮม\""), 2500);
 }
 
 /* ---------- boot ---------- */
