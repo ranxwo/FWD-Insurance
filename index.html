@@ -6,7 +6,7 @@
 <title>ทีมที่ปรึกษาประกันชีวิต | ตัวแทน FWD</title>
 <meta name="description" content="ทีมตัวแทนประกันชีวิต FWD ดูแลตั้งแต่วางแผน สมัคร ชำระเบี้ย จนถึงวันเคลม">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0F4C47">
+<meta name="theme-color" content="#E87722">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,10 +18,13 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Noto+Serif+Thai:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --teal:#0F4C47; --teal-2:#1B6A63; --teal-soft:#E4EFEC;
-  --orange:#E87722; --orange-dark:#C45F12; --orange-soft:#FDEEDF;
-  --ink:#1C2321; --muted:#5F6B68; --line:#DDE3E0;
-  --bg:#F7F8F6; --surface:#FFFFFF;
+  /* โทนสี FWD: ส้มเป็นหลัก เขียวเข้มเกือบดำเป็นสีตัวอักษร
+     --teal = สีหลักสำหรับตัวอักษร ลิงก์ เส้นขอบ (ส้มเข้ม อ่านง่ายบนพื้นขาว)
+     --orange = ส้ม FWD สำหรับพื้นหลังและปุ่มหลัก */
+  --teal:#B4530B; --teal-2:#CF6412; --teal-soft:#FDEBDC;
+  --orange:#E87722; --orange-dark:#B4530B; --orange-soft:#FFF1E4;
+  --ink:#183028; --muted:#5B6660; --line:#F0DCCB;
+  --bg:#FFF8F2; --surface:#FFFFFF;
   --ok:#2E7D4F; --warn:#B26A00; --bad:#B3261E;
   --serif:"Noto Serif Thai", "Sarabun", Georgia, serif;
   --sans:"IBM Plex Sans Thai", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -32,17 +35,17 @@
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --teal:#7FC8BE; --teal-2:#9ED8CF; --teal-soft:#16302D;
-    --orange:#F2944A; --orange-dark:#F7AE70; --orange-soft:#3A2614;
-    --ink:#E8EEEC; --muted:#A3B0AD; --line:#2C3634;
-    --bg:#121816; --surface:#1A2220;
+    --teal:#F6A061; --teal-2:#F8B47F; --teal-soft:#3A2414;
+    --orange:#E87722; --orange-dark:#F6A061; --orange-soft:#3A2414;
+    --ink:#F3ECE6; --muted:#BBAA9C; --line:#3A2E26;
+    --bg:#1A1411; --surface:#231B16;
   }
 }
 :root[data-theme="dark"]{
-  --teal:#7FC8BE; --teal-2:#9ED8CF; --teal-soft:#16302D;
-  --orange:#F2944A; --orange-dark:#F7AE70; --orange-soft:#3A2614;
-  --ink:#E8EEEC; --muted:#A3B0AD; --line:#2C3634;
-  --bg:#121816; --surface:#1A2220;
+  --teal:#F6A061; --teal-2:#F8B47F; --teal-soft:#3A2414;
+  --orange:#E87722; --orange-dark:#F6A061; --orange-soft:#3A2414;
+  --ink:#F3ECE6; --muted:#BBAA9C; --line:#3A2E26;
+  --bg:#1A1411; --surface:#231B16;
 }
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);-webkit-text-size-adjust:100%}
@@ -64,7 +67,7 @@ p{margin:0 0 1em;max-width:68ch}
 .site-head{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
 .site-head .wrap{display:flex;align-items:center;gap:16px;min-height:64px}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-family:var(--serif);font-weight:700;font-size:1.1rem;line-height:1.2}
-.brand-mark{width:36px;height:36px;border-radius:50%;background:var(--teal);color:var(--surface);display:grid;place-items:center;font-size:1rem}
+.brand-logo{width:46px;height:46px;border-radius:10px;flex-shrink:0;object-fit:cover}
 .brand small{display:block;font-family:var(--sans);font-weight:400;font-size:.75rem;color:var(--muted)}
 .nav{margin-left:auto;display:flex;gap:4px;align-items:center}
 .nav a{text-decoration:none;color:var(--ink);padding:8px 12px;border-radius:var(--r-sm);font-size:.95rem}
@@ -80,7 +83,7 @@ p{margin:0 0 1em;max-width:68ch}
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:999px;border:1.5px solid transparent;font:inherit;font-weight:600;font-size:1rem;cursor:pointer;text-decoration:none;line-height:1.2;min-height:46px}
 .btn-primary{background:var(--orange);color:#fff}
-.btn-primary:hover{background:var(--orange-dark)}
+.btn-primary:hover{background:var(--teal-2)}
 .btn-ghost{background:transparent;border-color:var(--teal);color:var(--teal)}
 .btn-ghost:hover{background:var(--teal-soft)}
 .btn-line{background:#06C755;color:#fff}
@@ -88,10 +91,16 @@ p{margin:0 0 1em;max-width:68ch}
 .btn-row{display:flex;flex-wrap:wrap;gap:10px}
 
 /* hero */
-.hero{padding:56px 0 64px;background:var(--surface);border-bottom:1px solid var(--line)}
+.hero{padding:56px 0 64px;background:var(--orange);color:#fff}
+.hero h1{color:#fff}
+.hero .btn-primary{background:#fff;color:var(--orange-dark)}
+.hero .btn-primary:hover{background:#FFF1E4}
+.hero .btn-ghost{border-color:#fff;color:#fff}
+.hero .btn-ghost:hover{background:rgba(255,255,255,.14)}
+.hero .roster{background:var(--surface);color:var(--ink);border:0;box-shadow:0 12px 32px rgba(120,50,0,.22)}
 .hero-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:48px;align-items:center}
 .hero h1{max-width:16ch}
-.hero .lead{font-size:1.15rem;color:var(--muted)}
+.hero .lead{font-size:1.15rem;color:rgba(255,255,255,.92)}
 .roster{border:1.5px solid var(--teal);border-radius:var(--r-lg);padding:22px;background:var(--bg)}
 .roster-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
 .roster-head h3{margin:0;color:var(--teal)}
@@ -148,8 +157,8 @@ details p{color:var(--muted)}
 .contact-band{background:var(--teal);color:#fff;padding:48px 0}
 .contact-band h2,.contact-band p{color:#fff}
 :root[data-theme="dark"] .contact-band, .contact-band{color:#fff}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .contact-band{background:#0D3330}}
-:root[data-theme="dark"] .contact-band{background:#0D3330}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .contact-band{background:#7A3606}}
+:root[data-theme="dark"] .contact-band{background:#7A3606}
 .contact-band .btn-ghost{border-color:#fff;color:#fff}
 .contact-band .btn-ghost:hover{background:rgba(255,255,255,.12)}
 
@@ -173,7 +182,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--teal);outline:none}
 .panel h3{margin-bottom:12px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:16px 18px}
-.kpi b{display:block;font-family:var(--serif);font-size:1.8rem;color:var(--teal);line-height:1.3}
+.kpi b{display:block;font-family:var(--serif);font-size:1.8rem;color:var(--ink);line-height:1.3}
 .kpi.alert b{color:var(--orange-dark)}
 .due-hero{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;border-left:5px solid var(--orange)}
 .due-hero .days{font-family:var(--serif);font-size:2.6rem;color:var(--orange-dark);line-height:1;text-align:center}
@@ -216,7 +225,7 @@ output.calc{display:block;padding:11px 14px;border-radius:var(--r-sm);background
 .pol-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px 18px;margin-top:12px;font-size:.95rem;line-height:1.5}
 .pay-box{margin-top:14px;padding:16px;border-radius:var(--r-sm);background:var(--bg);border:1px dashed var(--teal)}
 .pay-box h4{margin:0 0 10px;font-size:1rem}
-.install-bar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--surface);border:1.5px solid var(--teal);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 24px rgba(15,76,71,.18);max-width:560px;margin-inline:auto}
+.install-bar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--surface);border:1.5px solid var(--teal);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 24px rgba(180,83,11,.2);max-width:560px;margin-inline:auto}
 .install-bar img{width:44px;height:44px;border-radius:10px}
 .install-bar p{margin:0;font-size:.92rem;line-height:1.5;flex:1}
 .install-bar .x{background:none;border:0;font-size:1.4rem;color:var(--muted);cursor:pointer;padding:4px 8px;line-height:1}
@@ -226,7 +235,7 @@ output.calc{display:block;padding:11px 14px;border-radius:var(--r-sm);background
 <body>
 <header class="site-head">
   <div class="wrap">
-    <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true" id="brandMark">ท</span><span id="brandName">ทีมที่ปรึกษา<small>ตัวแทนประกันชีวิต FWD</small></span></a>
+    <a class="brand" href="#/"><img class="brand-logo" src="logo.jpg" alt="FWD ประกันชีวิต" width="46" height="46"><span id="brandName">ทีมที่ปรึกษา<small>ตัวแทนประกันชีวิต FWD</small></span></a>
     <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="nav">เมนู</button>
     <nav class="nav" id="nav" aria-label="เมนูหลัก">
       <a href="#/">หน้าแรก</a>
