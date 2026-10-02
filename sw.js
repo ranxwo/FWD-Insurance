@@ -1,9 +1,9 @@
 /* Service Worker — ทำให้เว็บติดตั้งเป็นแอปและเปิดได้แม้สัญญาณไม่ดี
    เมื่อแก้ไฟล์เว็บแล้วอัปขึ้น GitHub ให้เปลี่ยนเลข VERSION ทุกครั้ง เพื่อให้มือถือโหลดเวอร์ชันใหม่ */
-const VERSION = "v9";
+const VERSION = "v10";
 const CACHE = "team-web-" + VERSION;
 const SHELL = ["./", "./index.html", "./app.js", "./manifest.json",
-  "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon-32.png"];
+  "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "./favicon-32.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
