@@ -45,6 +45,14 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
+/* การล็อกอินเก็บใน sessionStorage: ปิดแท็บ/ปิดเบราว์เซอร์/ปิดแอป แล้วเปิดใหม่ = ต้องเข้าสู่ระบบใหม่เสมอ
+   (รีเฟรชหน้าเดิมยังอยู่ในระบบ) */
+const sessionStore = {
+  get() { try { return JSON.parse(sessionStorage.getItem("session")); } catch { return null; } },
+  set(v) { try { sessionStorage.setItem("session", JSON.stringify(v)); } catch {} },
+  del() { try { sessionStorage.removeItem("session"); sessionStorage.removeItem("lastActive"); } catch {} }
+};
+try { localStorage.removeItem("session"); } catch {} // ล้างการล็อกอินแบบเก่าที่เคยจำไว้ถาวรในเครื่อง
 function toast(msg, ms = 2600) {
   document.querySelectorAll(".toast").forEach(x => x.remove()); // แสดงทีละข้อความ
   const t = document.createElement("div");
@@ -220,11 +228,11 @@ const Api = {
       return data;
     } catch (e) {
       if (/ตั้งรหัสผ่านใหม่ก่อนใช้งาน/.test(e.message) && State.session) {
-        State.session.must_change = true; store.set("session", State.session); location.hash = "#/password";
+        State.session.must_change = true; sessionStore.set(State.session); location.hash = "#/password";
       }
       // เซสชันใช้ไม่ได้แล้ว: ล้างการล็อกอินเดิม แล้วพาไปหน้าเข้าสู่ระบบ
       if (/เซสชัน|ไม่มีสิทธิ์/.test(e.message) && State.session) {
-        State.session = null; store.del("session"); State.loginNotice = e.message;
+        State.session = null; sessionStore.del(); State.loginNotice = e.message;
         a11yNavMember(); location.hash = "#/login";
       }
       throw e;
@@ -301,6 +309,7 @@ const DemoApi = {
     DEMO.customers.push(c); const { password, ...out } = c; return { ok: true, customer: out };
   },
   changePassword({ token, current_hash, new_hash }) { return { ok: true }; },
+  logout() { return { ok: true }; },
   updateCustomer({ id, patch, password_hash }) {
     const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) { c.password = "demo"; c.must_change = true; }
     return { ok: true };
@@ -339,10 +348,10 @@ const DemoApi = {
 /* =========================================================
    STATE + ROUTER
    ========================================================= */
-const State = { pub: null, session: store.get("session"), loginNotice: "" };
+const State = { pub: null, session: sessionStore.get(), loginNotice: "" };
 // ล็อกอินที่ค้างมาจากโหมดตัวอย่าง ใช้กับ Google Sheet จริงไม่ได้ ล้างทิ้งอัตโนมัติ
 if (CONFIG.SHEET_API_URL && State.session && String(State.session.token).startsWith("demo-")) {
-  State.session = null; store.del("session");
+  State.session = null; sessionStore.del();
 }
 const app = $("#app");
 
@@ -559,12 +568,17 @@ function renderLogin() {
     const agent = role === "agent";
     $("#loginForm").innerHTML = `
       <label>${agent ? "รหัสตัวแทน" : "เบอร์โทรศัพท์"}
-        <input id="username" name="${agent ? "agent_id" : "customer_phone"}" ${agent ? 'autocomplete="username" autocapitalize="characters"' : 'inputmode="tel" autocomplete="tel"'}
+        <input id="username" name="${agent ? "agent_id" : "customer_phone"}" ${agent ? 'autocapitalize="characters"' : 'inputmode="tel"'} autocomplete="off" readonly
           placeholder="${agent ? "รหัสตัวแทน FWD เช่น 185382" : "เช่น 0812345678"}" spellcheck="false"></label>
-      <label>รหัสผ่าน<input id="password" type="password" name="${agent ? "agent_password" : "customer_password"}" autocomplete="${agent ? "current-password" : "off"}"></label>
+      <label>รหัสผ่าน<input id="password" type="password" name="${agent ? "agent_password" : "customer_password"}" autocomplete="off" readonly></label>
       <p class="error" id="loginErr" role="alert"></p>
       <button class="btn btn-primary" id="loginBtn" type="button">เข้าสู่ระบบ</button>
       <p class="small muted">${agent ? "ลืมรหัสผ่าน? ติดต่อหัวหน้าทีมหรือ Admin เพื่อตั้งรหัสใหม่" : "ยังไม่มีรหัสผ่าน? ขอรหัสจากตัวแทนของคุณทาง LINE"}</p>`;
+    // ไม่ให้เบราว์เซอร์เติมรหัสที่จำไว้ให้อัตโนมัติ: เปิดหน้ามาช่องว่างเสมอ
+    // (ช่องเป็น readonly ตอนโหลด เบราว์เซอร์จึงไม่เติม แล้วปลดล็อกทันทีเมื่อผู้ใช้แตะช่อง)
+    ["#username", "#password"].forEach(sel => { const el = $(sel); el.value = "";
+      const unlock = () => el.removeAttribute("readonly"); el.addEventListener("focus", unlock); el.addEventListener("pointerdown", unlock); });
+    setTimeout(() => { const u = $("#username"), pw = $("#password"); if (u && pw && !u.matches(":focus") && !pw.matches(":focus")) { u.value = ""; pw.value = ""; } }, 600);
     $("#loginBtn").onclick = submit;
     $("#password").onkeydown = (e) => { if (e.key === "Enter") submit(); };
     $("#username").onkeydown = (e) => { if (e.key === "Enter") $("#password").focus(); };
@@ -589,7 +603,7 @@ function renderLogin() {
     try {
       const s = await Api.call("login", { role: useRole, username, password_hash: await sha256(pw) });
       s.username_hint = useRole === "customer" ? username : String(username).toUpperCase();
-      State.session = s; store.set("session", s); store.set("loginRole", useRole); State.loginNotice = "";
+      State.session = s; sessionStore.set(s); touchActive(); store.set("loginRole", useRole); State.loginNotice = "";
       location.hash = s.must_change ? "#/password" : s.role === "agent" ? "#/dashboard" : "#/portal";
     } catch (e) {
       $("#loginErr").textContent = e.message;
@@ -599,7 +613,26 @@ function renderLogin() {
   draw();
 }
 
-function logout() { State.session = null; store.del("session"); location.hash = "#/"; }
+function logout(notice) {
+  const tok = State.session && State.session.token;
+  State.session = null; sessionStore.del();
+  if (tok && Api.live()) Api.call("logout", { token: tok }).catch(() => {}); // ยกเลิกเซสชันที่ฝั่ง Google Sheet ด้วย
+  if (typeof notice === "string") { State.loginNotice = notice; location.hash = "#/login"; }
+  else location.hash = "#/";
+  a11yNavMember();
+}
+
+/* ออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งานนาน (รวมกรณีพับแอปไว้แล้วกลับมาเปิด) */
+const IDLE_MINUTES = 30;
+const touchActive = () => { if (State.session) try { sessionStorage.setItem("lastActive", String(Date.now())); } catch {} };
+const checkIdle = () => {
+  if (!State.session) return;
+  let last = 0; try { last = Number(sessionStorage.getItem("lastActive") || 0); } catch {}
+  if (last && Date.now() - last > IDLE_MINUTES * 60000) logout("ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานเกิน " + IDLE_MINUTES + " นาที");
+};
+["pointerdown", "keydown", "scroll", "touchstart"].forEach(ev => window.addEventListener(ev, () => { checkIdle(); touchActive(); }, { passive: true }));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkIdle(); });
+setInterval(checkIdle, 60000);
 function requireRole(role) {
   if (!State.session || State.session.role !== role) { location.hash = "#/login"; return false; }
   if (State.session.must_change) { location.hash = "#/password"; return false; }
@@ -640,7 +673,7 @@ function renderPassword() {
     const btn = $("#pwSave"); btn.disabled = true; btn.textContent = "กำลังบันทึก…";
     try {
       await Api.call("changePassword", { token: s.token, current_hash: await sha256(cur), new_hash: await sha256(nw) });
-      s.must_change = false; store.set("session", s);
+      s.must_change = false; sessionStore.set(s);
       toast("เปลี่ยนรหัสผ่านแล้ว ใช้รหัสใหม่ในการเข้าครั้งถัดไป", 4000);
       location.hash = agent ? "#/dashboard" : "#/portal";
     } catch (e) { btn.disabled = false; btn.textContent = "บันทึกรหัสผ่านใหม่"; err(e.message); }
