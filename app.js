@@ -171,6 +171,9 @@ const Api = {
       if (data.error) throw new Error(data.error);
       return data;
     } catch (e) {
+      if (/ตั้งรหัสผ่านใหม่ก่อนใช้งาน/.test(e.message) && State.session) {
+        State.session.must_change = true; store.set("session", State.session); location.hash = "#/password";
+      }
       // เซสชันใช้ไม่ได้แล้ว: ล้างการล็อกอินเดิม แล้วพาไปหน้าเข้าสู่ระบบ
       if (/เซสชัน|ไม่มีสิทธิ์/.test(e.message) && State.session) {
         State.session = null; store.del("session"); State.loginNotice = e.message;
@@ -192,7 +195,7 @@ const DemoApi = {
         return { token: "demo-" + a.id, role: "agent", user_id: a.id, name: a.name };
     } else {
       for (const c of DEMO.customers) if (c.phone === username.replace(/\D/g, "") && c.password && password_hash === await sha256(c.password))
-        return { token: "demo-" + c.id, role: "customer", user_id: c.id, name: c.name };
+        return { token: "demo-" + c.id, role: "customer", user_id: c.id, name: c.name, must_change: !!c.must_change };
     }
     throw new Error("เบอร์โทร/รหัสตัวแทน หรือรหัสผ่านไม่ถูกต้อง");
   },
@@ -249,8 +252,9 @@ const DemoApi = {
     const c = { ...lead, id: "C" + Date.now(), type: "ลูกค้ามุ่งหวัง", agent_id, line_group_url: "", photo_url: "", password: "" };
     DEMO.customers.push(c); const { password, ...out } = c; return { ok: true, customer: out };
   },
+  changePassword({ token, current_hash, new_hash }) { return { ok: true }; },
   updateCustomer({ id, patch, password_hash }) {
-    const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) c.password = "demo";
+    const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) { c.password = "demo"; c.must_change = true; }
     return { ok: true };
   },
   addPolicy({ policy }) {
@@ -309,7 +313,8 @@ const routes = {
   "login": renderLogin,
   "portal": renderPortal,
   "dashboard": renderDashboard,
-  "install": renderInstall
+  "install": renderInstall,
+  "password": renderPassword
 };
 
 async function router() {
@@ -484,51 +489,114 @@ async function renderFaq() {
    LOGIN
    ========================================================= */
 function renderLogin() {
-  if (State.session) { location.hash = State.session.role === "agent" ? "#/dashboard" : "#/portal"; return; }
-  let role = "customer";
+  if (State.session) { location.hash = State.session.must_change ? "#/password" : State.session.role === "agent" ? "#/dashboard" : "#/portal"; return; }
+  // จำว่าใช้แท็บไหนล่าสุด ตัวแทนเปิดมาจะอยู่แท็บตัวแทนเลย
+  let role = store.get("loginRole") === "agent" ? "agent" : "customer";
   app.innerHTML = `<section class="block"><div class="wrap">
     <h1>เข้าสู่ระบบสมาชิก</h1>
     ${State.loginNotice ? `<div class="notice" style="margin-bottom:16px">${esc(State.loginNotice)}</div>` : ""}
     <div class="seg" role="group" aria-label="ประเภทสมาชิก" style="margin:12px 0 24px">
-      <button type="button" data-role="customer" aria-pressed="true">ลูกค้า</button>
-      <button type="button" data-role="agent" aria-pressed="false">ตัวแทน</button>
+      <button type="button" data-role="customer">ลูกค้า</button>
+      <button type="button" data-role="agent">ตัวแทน</button>
     </div>
-    <div class="form" id="loginForm">
-      <label><span id="userLabel">เบอร์โทรศัพท์</span><input id="username" inputmode="tel" autocomplete="username"></label>
-      <label>รหัสผ่าน<input id="password" type="password" autocomplete="current-password"></label>
+    <div class="form" id="loginForm"></div>
+    ${Api.live() ? "" : `<div class="notice" style="max-width:440px;margin-top:16px">โหมดตัวอย่าง: ลูกค้าใช้เบอร์ 0890000001 รหัส 1234, ตัวแทนใช้รหัส A02 (A01 = หัวหน้าทีม, ADMIN = ผู้ดูแลเว็บ) รหัสผ่าน agent123</div>`}
+  </div></section>`;
+
+  // สร้างช่องกรอกใหม่ทุกครั้งที่สลับแท็บ แยกชื่อช่องของลูกค้ากับตัวแทน
+  // เบราว์เซอร์จะจำข้อมูลแยกกัน และไม่เอารหัสตัวแทนมาใส่ช่องเบอร์โทรลูกค้า
+  const draw = () => {
+    store.set("loginRole", role);
+    app.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.role === role)));
+    const agent = role === "agent";
+    $("#loginForm").innerHTML = `
+      <label>${agent ? "รหัสตัวแทน" : "เบอร์โทรศัพท์"}
+        <input id="username" name="${agent ? "agent_id" : "customer_phone"}" ${agent ? 'autocomplete="username" autocapitalize="characters"' : 'inputmode="tel" autocomplete="tel"'}
+          placeholder="${agent ? "รหัสตัวแทน FWD เช่น 185382" : "เช่น 0812345678"}" spellcheck="false"></label>
+      <label>รหัสผ่าน<input id="password" type="password" name="${agent ? "agent_password" : "customer_password"}" autocomplete="${agent ? "current-password" : "off"}"></label>
       <p class="error" id="loginErr" role="alert"></p>
       <button class="btn btn-primary" id="loginBtn" type="button">เข้าสู่ระบบ</button>
-      <p class="small muted">ยังไม่มีรหัสผ่าน? ขอรหัสจากตัวแทนของคุณทาง LINE</p>
-      ${Api.live() ? "" : `<div class="notice">โหมดตัวอย่าง: ลูกค้าใช้เบอร์ 0890000001 รหัส 1234, ตัวแทนใช้รหัส A02 (A01 = หัวหน้าทีม, ADMIN = ผู้ดูแลเว็บ) รหัสผ่าน agent123</div>`}
-    </div></div></section>`;
+      <p class="small muted">${agent ? "ลืมรหัสผ่าน? ติดต่อหัวหน้าทีมหรือ Admin เพื่อตั้งรหัสใหม่" : "ยังไม่มีรหัสผ่าน? ขอรหัสจากตัวแทนของคุณทาง LINE"}</p>`;
+    $("#loginBtn").onclick = submit;
+    $("#password").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+    $("#username").onkeydown = (e) => { if (e.key === "Enter") $("#password").focus(); };
+  };
+  app.querySelectorAll(".seg button").forEach(b => b.onclick = () => { if (role !== b.dataset.role) { role = b.dataset.role; draw(); $("#username").focus(); } });
 
-  app.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
-    role = b.dataset.role;
-    app.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-    $("#userLabel").textContent = role === "agent" ? "รหัสตัวแทน" : "เบอร์โทรศัพท์";
-    $("#username").inputMode = role === "agent" ? "text" : "tel";
-  });
   const submit = async () => {
-    const username = $("#username").value.trim(), pw = $("#password").value;
+    let username = $("#username").value.trim();
+    const pw = $("#password").value;
     $("#loginErr").textContent = "";
     if (!username || !pw) { $("#loginErr").textContent = "กรอกข้อมูลให้ครบทั้งสองช่อง"; return; }
+    let useRole = role;
+    if (role === "customer") {
+      const digits = username.replace(/\D/g, "");
+      // พิมพ์รหัสตัวแทนในแท็บลูกค้า (มีตัวอักษร หรือไม่ใช่เบอร์โทร เช่น 185382): ส่งเป็นตัวแทนให้อัตโนมัติ
+      if (/[a-z]/i.test(username) || !/^0\d{8,9}$/.test(digits)) {
+        if (/[a-z]/i.test(username) || (digits.length >= 4 && digits.length <= 8 && !/^0/.test(digits))) useRole = "agent";
+        else { $("#loginErr").textContent = "เบอร์โทรต้องเป็นตัวเลข 10 หลัก ขึ้นต้นด้วย 0"; return; }
+      } else username = digits;
+    }
     $("#loginBtn").disabled = true; $("#loginBtn").textContent = "กำลังตรวจสอบ…";
     try {
-      const s = await Api.call("login", { role, username, password_hash: await sha256(pw) });
-      State.session = s; store.set("session", s); State.loginNotice = "";
-      location.hash = s.role === "agent" ? "#/dashboard" : "#/portal";
+      const s = await Api.call("login", { role: useRole, username, password_hash: await sha256(pw) });
+      s.username_hint = useRole === "customer" ? username : String(username).toUpperCase();
+      State.session = s; store.set("session", s); store.set("loginRole", useRole); State.loginNotice = "";
+      location.hash = s.must_change ? "#/password" : s.role === "agent" ? "#/dashboard" : "#/portal";
     } catch (e) {
       $("#loginErr").textContent = e.message;
       $("#loginBtn").disabled = false; $("#loginBtn").textContent = "เข้าสู่ระบบ";
     }
   };
-  $("#loginBtn").onclick = submit;
-  $("#password").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+  draw();
 }
+
 function logout() { State.session = null; store.del("session"); location.hash = "#/"; }
 function requireRole(role) {
   if (!State.session || State.session.role !== role) { location.hash = "#/login"; return false; }
+  if (State.session.must_change) { location.hash = "#/password"; return false; }
   return true;
+}
+
+/* =========================================================
+   เปลี่ยนรหัสผ่านของตัวเอง (บังคับเมื่อเข้าครั้งแรก หรือหลังมีคนตั้งรหัสให้)
+   ========================================================= */
+function renderPassword() {
+  const s = State.session;
+  if (!s) { location.hash = "#/login"; return; }
+  const agent = s.role === "agent", min = agent ? 8 : 6;
+  const forced = !!s.must_change;
+  app.innerHTML = `<section class="block"><div class="wrap">
+    <h1>${forced ? "ตั้งรหัสผ่านใหม่ก่อนใช้งาน" : "เปลี่ยนรหัสผ่าน"}</h1>
+    ${forced ? `<p class="muted" style="max-width:52ch">รหัสผ่านที่ได้รับจาก${agent ? "หัวหน้าทีม" : "ตัวแทน"}เป็นรหัสชั่วคราว ตั้งรหัสใหม่ที่จำได้ง่ายและมีเพียงคุณที่รู้</p>` : ""}
+    <div class="form">
+      <label>${forced ? "รหัสผ่านชั่วคราวที่ได้รับ" : "รหัสผ่านปัจจุบัน"}<input id="pwCur" type="password" autocomplete="current-password"></label>
+      <label>รหัสผ่านใหม่ (อย่างน้อย ${min} ตัว)<input id="pwNew" type="password" autocomplete="new-password"></label>
+      <label>พิมพ์รหัสผ่านใหม่อีกครั้ง<input id="pwNew2" type="password" autocomplete="new-password"></label>
+      ${agent ? `<div class="notice">ห้ามใช้รหัสผ่านเดียวกับที่ใช้เข้าระบบของบริษัท FWD</div>` : `<p class="small muted">ไม่ควรใช้วันเกิด เบอร์โทร หรือตัวเลขเรียงกัน เช่น 123456</p>`}
+      <p class="error" id="pwErr" role="alert"></p>
+      <button class="btn btn-primary" id="pwSave" type="button">บันทึกรหัสผ่านใหม่</button>
+      ${forced ? `<button class="btn btn-ghost" id="pwLogout" type="button">ออกจากระบบ</button>` : `<a href="#/${agent ? "dashboard" : "portal"}">ยกเลิก</a>`}
+    </div></div></section>`;
+  const err = (m) => { $("#pwErr").textContent = m; };
+  if ($("#pwLogout")) $("#pwLogout").onclick = logout;
+  $("#pwSave").onclick = async () => {
+    const cur = $("#pwCur").value, nw = $("#pwNew").value, nw2 = $("#pwNew2").value;
+    if (!cur) return err("กรอกรหัสผ่าน" + (forced ? "ชั่วคราว" : "ปัจจุบัน"));
+    if (nw.length < min) return err("รหัสผ่านใหม่ต้องยาวอย่างน้อย " + min + " ตัว");
+    if (agent && !(/[a-z]/i.test(nw) && /\d/.test(nw))) return err("รหัสผ่านตัวแทนต้องมีทั้งตัวอักษรและตัวเลข");
+    if (/^(\d)\1+$/.test(nw) || "0123456789012345678909876543210".includes(nw)) return err("รหัสผ่านเดาง่ายเกินไป ลองตั้งใหม่");
+    if (s.username_hint && nw.includes(s.username_hint)) return err("รหัสผ่านต้องไม่มีเบอร์โทรหรือรหัสตัวแทนอยู่ข้างใน");
+    if (nw !== nw2) return err("รหัสผ่านใหม่สองช่องไม่ตรงกัน");
+    if (nw === cur) return err("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม");
+    const btn = $("#pwSave"); btn.disabled = true; btn.textContent = "กำลังบันทึก…";
+    try {
+      await Api.call("changePassword", { token: s.token, current_hash: await sha256(cur), new_hash: await sha256(nw) });
+      s.must_change = false; store.set("session", s);
+      toast("เปลี่ยนรหัสผ่านแล้ว ใช้รหัสใหม่ในการเข้าครั้งถัดไป", 4000);
+      location.hash = agent ? "#/dashboard" : "#/portal";
+    } catch (e) { btn.disabled = false; btn.textContent = "บันทึกรหัสผ่านใหม่"; err(e.message); }
+  };
 }
 
 /* =========================================================
@@ -544,7 +612,7 @@ async function renderPortal() {
     const tabs = [["overview", "ภาพรวม"], ["policies", "กรมธรรม์"], ["pay", "การชำระเบี้ย"], ["claims", "การเคลม"], ["contact", "สอบถาม/แจ้งปัญหา"]];
     app.innerHTML = `<div class="wrap">
       <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">สวัสดี ${esc(d.me.name)}</h1><span class="muted small">ข้อมูลอัปเดตจากทีมตัวแทน ยึดเอกสารของบริษัทเป็นหลัก</span></div>
-      <button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div>
+      <div class="btn-row"><a class="btn btn-ghost btn-sm" href="#/password">เปลี่ยนรหัสผ่าน</a><button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div></div>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${tab === k}">${l}</button>`).join("")}</div>
       <div id="tabBody" style="padding-bottom:48px">${portalTab(tab, d, upcoming)}</div></div>`;
     $("#logout").onclick = logout;
@@ -664,6 +732,7 @@ async function renderDashboard() {
         ${full.leader && !meAdmin ? `<div class="seg" role="group" aria-label="เลือกมุมมอง">
           <button type="button" data-mode="team" aria-pressed="${mode === "team"}">มุมมองหัวหน้าทีม</button>
           <button type="button" data-mode="mine" aria-pressed="${mode === "mine"}">งานขายของฉัน</button></div>` : ""}
+        <a class="btn btn-ghost btn-sm" href="#/password">เปลี่ยนรหัสผ่าน</a>
         <button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div></div>
       <div class="kpis">
         <div class="kpi"><b>${d.customers.filter(c => c.type === "ลูกค้า").length}</b>ลูกค้าที่ดูแล</div>
@@ -739,11 +808,11 @@ async function renderDashboard() {
       return `<div class="two-col" style="align-items:start">
         <div class="panel" id="agentForm"><h3>${editId ? "แก้ไขข้อมูล " + esc(e.name) : "เพิ่มตัวแทนใหม่"}</h3>
           <div class="form" style="max-width:none">
-            <label>รหัสตัวแทน (ใช้ล็อกอิน)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly style=\"background:var(--bg)\"" : ""} placeholder="เช่น A10" autocapitalize="characters"></label>
+            <label>รหัสตัวแทน FWD (ใช้ล็อกอิน เปลี่ยนภายหลังไม่ได้)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly style=\"background:var(--bg)\"" : ""} placeholder="เช่น 185382" autocapitalize="characters"></label>
             <label>ชื่อ-นามสกุล<input id="gName" value="${esc(e.name || "")}"></label>
             <label>ตำแหน่ง<select id="gRole" ${editingSelf ? "disabled" : ""}>${ROLES.map(r => opt(r, e.role || "ตัวแทน")).join("")}</select>
               <span class="small muted">${editingSelf ? "เปลี่ยนตำแหน่งของตัวเองไม่ได้" : "หัวหน้าทีมและ Admin จัดการทีมได้ทุกอย่าง Admin จะไม่แสดงบนหน้าเว็บ"}</span></label>
-            <label>เลขใบอนุญาตตัวแทน<input id="gLic" value="${esc(e.license_no || "")}" inputmode="numeric"></label>
+            <label>เลขที่ใบอนุญาตตัวแทน (คปภ.)<input id="gLic" value="${esc(e.license_no || "")}" inputmode="numeric"></label>
             <label>ประสบการณ์ (ปี)<input id="gYears" type="number" min="0" value="${esc(e.years ?? "")}"></label>
             <label>เบอร์โทร<input id="gPhone" value="${esc(e.phone || "")}" inputmode="tel"></label>
             <label>ลิงก์ LINE<input id="gLine" value="${esc(e.line_url || "")}" placeholder="https://line.me/ti/p/~lineid"></label>
@@ -892,7 +961,7 @@ async function renderDashboard() {
         <div class="panel"><h3>ข้อมูลส่วนตัว</h3>${profileFields(c, "c")}
           ${full.leader ? `<label style="margin-top:14px">ตัวแทนหลัก<select id="cAgent">${publicAgents(full.agents).map(a => `<option value="${esc(a.id)}" ${a.id === c.agent_id ? "selected" : ""}>${esc(a.name)} (${esc(a.id)})</option>`).join("")}</select></label>` : ""}
           <label style="margin-top:14px">ลิงก์กลุ่ม LINE ของลูกค้า<input id="cLine" value="${esc(c.line_group_url || "")}" placeholder="https://line.me/R/ti/g/..."></label>
-          ${isLead ? "" : `<label style="margin-top:14px">ตั้งรหัสผ่านให้ลูกค้าเข้าดูกรมธรรม์ (เว้นว่างถ้าไม่เปลี่ยน)<input id="cPw" type="password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัว"></label>`}
+          ${isLead ? "" : `<label style="margin-top:14px">ตั้งรหัสชั่วคราวให้ลูกค้าเข้าดูกรมธรรม์ (ลูกค้าจะเปลี่ยนเองเมื่อเข้าครั้งแรก เว้นว่างถ้าไม่เปลี่ยน)<input id="cPw" type="password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัว"></label>`}
           <p class="error" id="cErr" role="alert"></p>
           <button class="btn btn-primary" id="cSave" type="button">บันทึกข้อมูลลูกค้า</button>
         </div>
@@ -946,7 +1015,7 @@ async function renderDashboard() {
         busy(cs, true, "กำลังบันทึก…");
         try {
           await Api.call("updateCustomer", { token: tok, id: c.id, patch, password_hash: pw ? await sha256(pw) : undefined });
-          Object.assign(c, patch); toast(pw ? "บันทึกแล้ว แจ้งรหัสผ่านให้ลูกค้าทาง LINE ส่วนตัว" : "บันทึกข้อมูลลูกค้าแล้ว", pw ? 5000 : 2600); view();
+          Object.assign(c, patch); toast(pw ? "บันทึกแล้ว แจ้งรหัสชั่วคราวให้ลูกค้าทาง LINE ส่วนตัว ลูกค้าจะต้องตั้งรหัสใหม่เมื่อเข้าครั้งแรก" : "บันทึกข้อมูลลูกค้าแล้ว", pw ? 6000 : 2600); view();
         } catch (e2) { busy(cs, false, "บันทึกข้อมูลลูกค้า"); $("#cErr").textContent = e2.message; }
       };
 
@@ -1047,7 +1116,7 @@ async function renderDashboard() {
         bio: val("#gBio"), on_duty: $("#gDuty").checked
       };
       const pw = $("#gPw").value, pw2 = $("#gPw2").value;
-      if (!/^[A-Z0-9_-]{2,20}$/.test(agent.id)) return err("รหัสตัวแทนใช้ได้เฉพาะตัวอักษรภาษาอังกฤษและตัวเลข 2-20 ตัว เช่น A10");
+      if (!/^[A-Z0-9_-]{2,20}$/.test(agent.id)) return err("รหัสตัวแทนใช้ได้เฉพาะตัวอักษรภาษาอังกฤษและตัวเลข 2-20 ตัว เช่น 185382");
       if (!agent.name) return err("กรอกชื่อ-นามสกุล");
       if (agent.line_url && !/^https:\/\//.test(agent.line_url)) return err("ลิงก์ LINE ต้องขึ้นต้นด้วย https://");
       if (!editId && !pw) return err("ตั้งรหัสผ่านเริ่มต้นให้ตัวแทนใหม่");
