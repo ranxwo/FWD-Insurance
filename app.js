@@ -55,6 +55,13 @@ async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
+/* ตำแหน่ง: หัวหน้าทีม และ Admin (ผู้ดูแลเว็บ) จัดการทีมได้เหมือนกัน
+   Admin ไม่แสดงบนหน้าเว็บสาธารณะ และไม่มีมุมมอง "งานขายของฉัน" */
+const ROLES = ["ตัวแทน", "ตัวแทนอาวุโส", "หัวหน้าทีม", "Admin"];
+const isManager = (role) => role === "หัวหน้าทีม" || role === "Admin";
+const isAdmin = (role) => role === "Admin";
+const roleLabel = (role) => isAdmin(role) ? "Admin (ผู้ดูแลเว็บ)" : (role || "");
+const publicAgents = (list) => (list || []).filter(a => !isAdmin(a.role));
 const lineShare = (text) => "https://line.me/R/msg/text/?" + encodeURIComponent(text);
 
 /* =========================================================
@@ -70,7 +77,9 @@ const DEMO = {
     { id: "A03", name: "ธนพล มั่นคง", role: "ตัวแทน", license_no: "6503xxxxxx", years: 4, phone: "083-333-3333", line_url: "https://line.me/R/ti/p/~thanapon", photo_url: "", backup_id: "A02", on_duty: false,
       bio: "ดูแลกลุ่มคนทำงานรุ่นใหม่ วางแผนลดหย่อนภาษีและออมเงินระยะยาว", specialties: ["ลดหย่อนภาษี", "ออมทรัพย์"], password: "agent123" },
     { id: "A04", name: "พิมพ์ชนก แสงทอง", role: "ตัวแทน", license_no: "6604xxxxxx", years: 3, phone: "084-444-4444", line_url: "https://line.me/R/ti/p/~pim", photo_url: "", backup_id: "A01", on_duty: true,
-      bio: "ดูแลครอบครัวที่มีลูกเล็ก ประกันสุขภาพเด็กและทุนการศึกษา", specialties: ["ประกันเด็ก", "ทุนการศึกษา"], password: "agent123" }
+      bio: "ดูแลครอบครัวที่มีลูกเล็ก ประกันสุขภาพเด็กและทุนการศึกษา", specialties: ["ประกันเด็ก", "ทุนการศึกษา"], password: "agent123" },
+    { id: "ADMIN", name: "ผู้ดูแลเว็บ", role: "Admin", license_no: "", years: 0, phone: "", line_url: "", photo_url: "", backup_id: "", on_duty: false,
+      bio: "", specialties: [], password: "agent123" }
   ],
   customers: [
     { id: "C001", name: "คุณมานี มีสุข", phone: "0890000001", type: "ลูกค้า", agent_id: "A02", line_group_url: "https://line.me/R/ti/g/xxxx", birthday: "1985-03-12", photo_url: "", note: "ชอบให้ติดต่อทาง LINE", password: "1234" },
@@ -186,7 +195,7 @@ const DemoApi = {
     const id = token.replace("demo-", "");
     const me = DEMO.agents.find(a => a.id === id);
     if (!me) throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง");
-    const leader = me.role === "หัวหน้าทีม";
+    const leader = isManager(me.role);
     const myAgentIds = leader ? DEMO.agents.map(a => a.id) : [id];
     // ตัวแทนเห็นลูกค้าของตัวเอง + ลูกค้าที่ตัวเองเป็นตัวแทนสำรอง
     const backupFor = DEMO.agents.filter(a => a.backup_id === id).map(a => a.id);
@@ -198,7 +207,7 @@ const DemoApi = {
       me: (({ password, ...x }) => x)(me), leader, customers, policies,
       tickets: DEMO.tickets.filter(t => cids.includes(t.customer_id)),
       claims: DEMO.claims.filter(c => policies.some(p => p.policy_no === c.policy_no)),
-      agents: DEMO.agents.map(({ password, ...a }) => a)
+      agents: DEMO.agents.map(({ password, ...a }) => ({ ...a, has_password: !!password }))
     };
   },
   createTicket({ token, topic, message }) {
@@ -218,14 +227,14 @@ const DemoApi = {
   },
   addAgent({ token, agent, password_hash }) {
     const me = DEMO.agents.find(a => a.id === token.replace("demo-", ""));
-    if (!me || me.role !== "หัวหน้าทีม") throw new Error("เฉพาะหัวหน้าทีมเท่านั้นที่เพิ่มตัวแทนได้");
+    if (!me || !isManager(me.role)) throw new Error("เฉพาะหัวหน้าทีมหรือ Admin เท่านั้นที่เพิ่มตัวแทนได้");
     if (DEMO.agents.some(a => a.id.toLowerCase() === agent.id.toLowerCase())) throw new Error("รหัสตัวแทน " + agent.id + " มีอยู่แล้ว ใช้รหัสอื่น");
     DEMO.agents.push({ ...agent, photo_url: "", password: "demo" });
     return { ok: true, agent: { ...agent, photo_url: "" } };
   },
   updateAgent({ token, id, patch }) {
     const me = DEMO.agents.find(a => a.id === token.replace("demo-", ""));
-    if (!me || me.role !== "หัวหน้าทีม") throw new Error("เฉพาะหัวหน้าทีมเท่านั้นที่แก้ข้อมูลตัวแทนได้");
+    if (!me || !isManager(me.role)) throw new Error("เฉพาะหัวหน้าทีมหรือ Admin เท่านั้นที่แก้ข้อมูลตัวแทนได้");
     const a = DEMO.agents.find(x => x.id === id); if (a) Object.assign(a, patch);
     return { ok: true };
   }
@@ -284,7 +293,8 @@ function a11yNavMember() {
    PUBLIC PAGES
    ========================================================= */
 async function renderHome() {
-  const { agents, posts, faq } = await loadPublic();
+  const { posts, faq } = await loadPublic();
+  const agents = publicAgents(State.pub.agents);
   const onDuty = agents.filter(a => a.on_duty);
   const leader = agents.find(a => a.role === "หัวหน้าทีม");
   const totalYears = agents.reduce((s, a) => s + Number(a.years || 0), 0);
@@ -372,14 +382,14 @@ const contactBand = () => `<section class="contact-band"><div class="wrap">
   <a class="btn btn-ghost" href="tel:${esc(CONFIG.TEAM_PHONE.replace(/\D/g, ""))}">โทรหาทีม</a></div></div></section>`;
 
 async function renderTeam() {
-  const { agents } = await loadPublic();
+  const agents = publicAgents((await loadPublic()).agents);
   app.innerHTML = `<section class="block"><div class="wrap">
     <div class="section-head"><h1>ทีมของเรา</h1><p class="muted">เลือกตัวแทนที่ถนัดเรื่องที่คุณสนใจ หรือทัก LINE ทีมให้เราจับคู่ให้</p></div>
     ${teamGrid(agents, agents.find(a => a.role === "หัวหน้าทีม"))}</div></section>${contactBand()}`;
 }
 
 async function renderAgent(id) {
-  const { agents } = await loadPublic();
+  const agents = publicAgents((await loadPublic()).agents);
   const a = agents.find(x => x.id === id);
   if (!a) throw new Error("ไม่พบตัวแทนที่ค้นหา");
   const backup = agents.find(x => x.id === a.backup_id);
@@ -444,7 +454,7 @@ function renderLogin() {
       <p class="error" id="loginErr" role="alert"></p>
       <button class="btn btn-primary" id="loginBtn" type="button">เข้าสู่ระบบ</button>
       <p class="small muted">ยังไม่มีรหัสผ่าน? ขอรหัสจากตัวแทนของคุณทาง LINE</p>
-      ${Api.live() ? "" : `<div class="notice">โหมดตัวอย่าง: ลูกค้าใช้เบอร์ 0890000001 รหัส 1234, ตัวแทนใช้รหัส A02 (หรือ A01 สำหรับหัวหน้าทีม) รหัสผ่าน agent123</div>`}
+      ${Api.live() ? "" : `<div class="notice">โหมดตัวอย่าง: ลูกค้าใช้เบอร์ 0890000001 รหัส 1234, ตัวแทนใช้รหัส A02 (A01 = หัวหน้าทีม, ADMIN = ผู้ดูแลเว็บ) รหัสผ่าน agent123</div>`}
     </div></div></section>`;
 
   app.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
@@ -572,8 +582,10 @@ async function renderDashboard() {
   if (!requireRole("agent")) return;
   const full = await Api.call("agentData", { token: State.session.token });
   let tab = "today", filter = "ทั้งหมด", q = "", editId = null;
+  let agentFilter = { text: "", role: "", onlyInc: false }; // จำคำค้นหาไว้ระหว่างแก้ไขข้อมูล
   // หัวหน้าทีมสลับได้ 2 มุมมอง: "team" = เห็นทั้งทีม, "mine" = ทำงานขายเองเหมือนลูกทีมคนหนึ่ง
-  let mode = full.leader ? (store.get("dashMode") || "team") : "mine";
+  const meAdmin = isAdmin(full.me.role);
+  let mode = meAdmin ? "team" : full.leader ? (store.get("dashMode") || "team") : "mine";
   const custById = Object.fromEntries(full.customers.map(c => [c.id, c]));
   const agentById = Object.fromEntries(full.agents.map(a => [a.id, a]));
 
@@ -599,9 +611,9 @@ async function renderDashboard() {
     const tabs = [["today", "งานวันนี้"], ["customers", "ลูกค้า"], ["claims", "เคลม"], ...(d.leader ? [["team", "ภาพรวมทีม"], ["manage", "จัดการทีม"]] : [])];
 
     app.innerHTML = `<div class="wrap">
-      <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">${esc(d.me.name)}</h1><span class="muted small">${esc(d.me.role)}${full.leader ? (mode === "team" ? ", กำลังดูข้อมูลทั้งทีม" : ", กำลังดูเฉพาะลูกค้าของคุณ") : ""}</span></div>
+      <div class="app-head"><div><h1 style="margin:0;font-size:1.8rem">${esc(d.me.name)}</h1><span class="muted small">${esc(roleLabel(d.me.role))}${full.leader ? (mode === "team" ? ", กำลังดูข้อมูลทั้งทีม" : ", กำลังดูเฉพาะลูกค้าของคุณ") : ""}</span></div>
       <div class="btn-row" style="align-items:center">
-        ${full.leader ? `<div class="seg" role="group" aria-label="เลือกมุมมอง">
+        ${full.leader && !meAdmin ? `<div class="seg" role="group" aria-label="เลือกมุมมอง">
           <button type="button" data-mode="team" aria-pressed="${mode === "team"}">มุมมองหัวหน้าทีม</button>
           <button type="button" data-mode="mine" aria-pressed="${mode === "mine"}">งานขายของฉัน</button></div>` : ""}
         <button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div></div>
@@ -650,7 +662,7 @@ async function renderDashboard() {
       if (tab === "manage") return manageTab(d);
 
       // team overview (leader only)
-      const rows = d.agents.map(a => {
+      const rows = publicAgents(d.agents).map(a => {
         const cs = d.customers.filter(c => c.agent_id === a.id);
         const ps = d.policies.filter(p => cs.some(c => c.id === p.customer_id));
         return { a, clients: cs.filter(c => c.type === "ลูกค้า").length, leads: cs.filter(c => c.type === "ลูกค้ามุ่งหวัง").length,
@@ -665,32 +677,54 @@ async function renderDashboard() {
 
     function manageTab(d) {
       const e = editId ? (agentById[editId] || {}) : {};
-      const opt = (v, cur) => `<option ${v === cur ? "selected" : ""}>${v}</option>`;
+      const editingSelf = editId === full.me.id;
+      const opt = (v, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${roleLabel(v)}</option>`;
+      const missing = (a) => isAdmin(a.role) ? (a.has_password === false ? ["รหัสผ่าน"] : []) : [
+        !a.license_no && "เลขใบอนุญาต", !a.phone && "เบอร์โทร", !a.line_url && "LINE",
+        !a.photo_url && "รูปโปรไฟล์", !a.bio && "แนะนำตัว", a.has_password === false && "รหัสผ่าน"].filter(Boolean);
+      const searchText = (a) => [a.id, a.name, a.role, roleLabel(a.role), a.phone, String(a.phone || "").replace(/\D/g, ""), a.license_no, a.email, (a.specialties || []).join(" "), (agentById[a.backup_id] || {}).name].join(" ").toLowerCase();
+      const sorted = [...d.agents].sort((x, y) => ROLES.indexOf(y.role) - ROLES.indexOf(x.role) || String(x.id).localeCompare(String(y.id)));
+      const incomplete = sorted.filter(a => missing(a).length).length;
+
       return `<div class="two-col" style="align-items:start">
-        <div class="panel"><h3>${editId ? "แก้ไขข้อมูล " + esc(e.name) : "เพิ่มตัวแทนใหม่"}</h3>
+        <div class="panel" id="agentForm"><h3>${editId ? "แก้ไขข้อมูล " + esc(e.name) : "เพิ่มตัวแทนใหม่"}</h3>
           <div class="form" style="max-width:none">
-            <label>รหัสตัวแทน (ใช้ล็อกอิน)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly" : ""} placeholder="เช่น A10" autocapitalize="characters"></label>
+            <label>รหัสตัวแทน (ใช้ล็อกอิน)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly style=\"background:var(--bg)\"" : ""} placeholder="เช่น A10" autocapitalize="characters"></label>
             <label>ชื่อ-นามสกุล<input id="gName" value="${esc(e.name || "")}"></label>
-            <label>ตำแหน่ง<select id="gRole">${["ตัวแทน", "ตัวแทนอาวุโส", "หัวหน้าทีม"].map(r => opt(r, e.role || "ตัวแทน")).join("")}</select></label>
+            <label>ตำแหน่ง<select id="gRole" ${editingSelf ? "disabled" : ""}>${ROLES.map(r => opt(r, e.role || "ตัวแทน")).join("")}</select>
+              <span class="small muted">${editingSelf ? "เปลี่ยนตำแหน่งของตัวเองไม่ได้" : "หัวหน้าทีมและ Admin จัดการทีมได้ทุกอย่าง Admin จะไม่แสดงบนหน้าเว็บ"}</span></label>
             <label>เลขใบอนุญาตตัวแทน<input id="gLic" value="${esc(e.license_no || "")}" inputmode="numeric"></label>
             <label>ประสบการณ์ (ปี)<input id="gYears" type="number" min="0" value="${esc(e.years ?? "")}"></label>
             <label>เบอร์โทร<input id="gPhone" value="${esc(e.phone || "")}" inputmode="tel"></label>
             <label>ลิงก์ LINE<input id="gLine" value="${esc(e.line_url || "")}" placeholder="https://line.me/ti/p/~lineid"></label>
             <label>อีเมลรับแจ้งเตือน (ไม่แสดงบนเว็บ)<input id="gEmail" type="email" value="${esc(e.email || "")}"></label>
-            <label>ตัวแทนสำรอง<select id="gBackup"><option value="">ไม่ระบุ</option>${d.agents.filter(a => a.id !== editId).map(a => `<option value="${esc(a.id)}" ${a.id === e.backup_id ? "selected" : ""}>${esc(a.name)} (${esc(a.id)})</option>`).join("")}</select></label>
+            <label>ตัวแทนสำรอง<select id="gBackup"><option value="">ไม่ระบุ</option>${publicAgents(d.agents).filter(a => a.id !== editId).map(a => `<option value="${esc(a.id)}" ${a.id === e.backup_id ? "selected" : ""}>${esc(a.name)} (${esc(a.id)})</option>`).join("")}</select></label>
             <label>ความถนัด (คั่นด้วยจุลภาค)<input id="gSpec" value="${esc((e.specialties || []).join(", "))}" placeholder="เช่น เคลมสุขภาพ, ลดหย่อนภาษี"></label>
             <label>แนะนำตัว<textarea id="gBio" rows="3">${esc(e.bio || "")}</textarea></label>
-            <label style="display:flex;align-items:center;gap:10px;font-weight:400"><input id="gDuty" type="checkbox" style="width:auto" ${e.on_duty !== false ? "checked" : ""}> แสดงในกล่อง "พร้อมดูแลวันนี้"</label>
+            <label style="display:flex;align-items:center;gap:10px;font-weight:400"><input id="gDuty" type="checkbox" style="width:auto" ${editId ? (e.on_duty ? "checked" : "") : "checked"}> แสดงในกล่อง "พร้อมดูแลวันนี้"</label>
             <label>${editId ? "ตั้งรหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)" : "รหัสผ่านเริ่มต้น"}<input id="gPw" type="password" autocomplete="new-password"></label>
             <label>พิมพ์รหัสผ่านอีกครั้ง<input id="gPw2" type="password" autocomplete="new-password"></label>
             <p class="error" id="gErr" role="alert"></p>
             <div class="btn-row"><button class="btn btn-primary" id="gSave" type="button">${editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"}</button>
             ${editId ? `<button class="btn btn-ghost" id="gCancel" type="button">ยกเลิก</button>` : ""}</div>
           </div></div>
+
         <div class="panel"><h3>ตัวแทนในทีม (${d.agents.length} คน)</h3>
-          ${d.agents.map(a => `<div class="agent-mini">${avatar(a, "sm")}<div style="flex:1"><b>${esc(a.name)}</b> <span class="small muted">${esc(a.id)}, ${esc(a.role)}</span><br>
-            <span class="small">${a.on_duty ? statusBadge("พร้อมดูแล") : `<span class="badge b-info">ไม่แสดงในกล่องพร้อมดูแล</span>`}</span></div>
-            <button class="btn btn-ghost btn-sm" data-edit="${esc(a.id)}">แก้ไข</button></div>`).join("")}
+          <div class="form" style="max-width:none;gap:10px;margin-bottom:6px">
+            <input id="aSearch" type="search" placeholder="ค้นหาชื่อ รหัส เบอร์โทร เลขใบอนุญาต หรือความถนัด" aria-label="ค้นหาตัวแทน">
+            <div class="btn-row" style="gap:8px">
+              <select id="aRole" aria-label="กรองตามตำแหน่ง" style="width:auto;flex:1"><option value="">ทุกตำแหน่ง</option>${ROLES.map(r => `<option value="${r}">${roleLabel(r)}</option>`).join("")}</select>
+              <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:.92rem"><input id="aIncomplete" type="checkbox" style="width:auto"> เฉพาะข้อมูลไม่ครบ (${incomplete})</label>
+            </div>
+            <span class="small muted" id="aCount" aria-live="polite">แสดง ${sorted.length} คน</span>
+          </div>
+          <div id="aList">${sorted.map(a => { const miss = missing(a); return `<div class="agent-mini" data-agent data-role="${esc(a.role)}" data-incomplete="${miss.length ? 1 : 0}" data-q="${esc(searchText(a))}">
+            ${avatar(a, "sm")}<div style="flex:1;min-width:0"><b>${esc(a.name)}</b> <span class="small muted">${esc(a.id)}, ${esc(roleLabel(a.role))}</span><br>
+            <span class="small muted">${a.phone ? "โทร " + esc(a.phone) : ""}${a.license_no ? (a.phone ? ", " : "") + "ใบอนุญาต " + esc(a.license_no) : ""}</span>
+            <div class="tags" style="margin-top:4px">${isAdmin(a.role) ? "" : (a.on_duty ? statusBadge("พร้อมดูแล") : `<span class="badge b-info">ไม่แสดงในกล่องพร้อมดูแล</span>`)}
+            ${miss.length ? `<span class="badge b-warn">ยังไม่มี: ${esc(miss.join(", "))}</span>` : ""}</div></div>
+            <button class="btn btn-ghost btn-sm" data-edit="${esc(a.id)}">แก้ไข</button></div>`; }).join("")}</div>
+          <p class="muted hidden" id="aEmpty">ไม่พบตัวแทนที่ตรงกับคำค้นหา</p>
         </div></div>`;
     }
 
@@ -705,7 +739,26 @@ async function renderDashboard() {
       toast("บันทึกว่าตอบแล้ว"); view();
     });
 
-    app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { editId = b.dataset.edit; view(); window.scrollTo({ top: 0 }); });
+    app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { editId = b.dataset.edit; view(); $("#agentForm")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#gName")?.focus({ preventScroll: true }); });
+    const aS = $("#aSearch");
+    if (aS) {
+      const applyFilter = () => {
+        // ค้นหาเบอร์โทรได้ทั้งแบบมีขีดและไม่มีขีด เช่น 083-333 หรือ 083333
+        const words = aS.value.toLowerCase().trim().split(/\s+/).filter(Boolean).map(w => /^[\d-]+$/.test(w) ? w.replace(/-/g, "") : w);
+        const role = $("#aRole").value, onlyInc = $("#aIncomplete").checked;
+        let n = 0;
+        app.querySelectorAll("[data-agent]").forEach(el => {
+          const ok = words.every(w => el.dataset.q.includes(w)) && (!role || el.dataset.role === role) && (!onlyInc || el.dataset.incomplete === "1");
+          el.classList.toggle("hidden", !ok); if (ok) n++;
+        });
+        $("#aCount").textContent = "แสดง " + n + " คน";
+        $("#aEmpty").classList.toggle("hidden", n > 0);
+        agentFilter = { text: aS.value, role, onlyInc };
+      };
+      aS.value = agentFilter.text; $("#aRole").value = agentFilter.role; $("#aIncomplete").checked = agentFilter.onlyInc;
+      aS.oninput = applyFilter; $("#aRole").onchange = applyFilter; $("#aIncomplete").onchange = applyFilter;
+      applyFilter();
+    }
     const gc = $("#gCancel"); if (gc) gc.onclick = () => { editId = null; view(); };
     const gs = $("#gSave"); if (gs) gs.onclick = async () => {
       const err = (m) => { $("#gErr").textContent = m; };
@@ -723,18 +776,18 @@ async function renderDashboard() {
       if (!editId && !pw) return err("ตั้งรหัสผ่านเริ่มต้นให้ตัวแทนใหม่");
       if (pw && pw.length < 6) return err("รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร");
       if (pw !== pw2) return err("รหัสผ่านสองช่องไม่ตรงกัน");
-      if (editId === full.me.id && agent.role !== "หัวหน้าทีม") return err("เปลี่ยนตำแหน่งของตัวเองไม่ได้ ให้หัวหน้าทีมคนอื่นเปลี่ยนให้");
+      if (editId === full.me.id) agent.role = full.me.role; // เปลี่ยนตำแหน่งของตัวเองไม่ได้
       gs.disabled = true; gs.textContent = "กำลังบันทึก…";
       try {
         const password_hash = pw ? await sha256(pw) : undefined;
         if (editId) {
           const { id, ...patch } = agent;
           await Api.call("updateAgent", { token: State.session.token, id: editId, patch, password_hash });
-          Object.assign(agentById[editId], patch);
+          Object.assign(agentById[editId], patch, pw ? { has_password: true } : {});
           toast("บันทึกข้อมูล " + agent.name + " แล้ว");
         } else {
           await Api.call("addAgent", { token: State.session.token, agent, password_hash });
-          full.agents.push(agent); agentById[agent.id] = agent;
+          const added = { ...agent, has_password: true }; full.agents.push(added); agentById[agent.id] = added;
           toast("เพิ่ม " + agent.name + " แล้ว แจ้งรหัส " + agent.id + " และรหัสผ่านให้ตัวแทนทาง LINE ส่วนตัว", 6000);
         }
         State.pub = null; // ให้หน้าเว็บสาธารณะโหลดรายชื่อทีมใหม่
