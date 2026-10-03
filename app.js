@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03h"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03j"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 const CONFIG = {
   SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
@@ -409,6 +409,25 @@ const DemoApi = {
     Object.assign(p, patch);
     const c = DEMO.customers.find(x => x.id === p.customer_id); const converted = c && c.type !== "ลูกค้า" && p.status === CLOSED_STATUS;
     if (converted) c.type = "ลูกค้า"; return { ok: true, converted };
+  },
+  uploadAgentPhoto({ id, data }) {
+    const a = DEMO.agents.find(x => x.id === id); const photo_url = "data:image/jpeg;base64," + data;
+    Object.assign(a, { photo_url, photo_file_id: "demo" }); return { ok: true, photo_url, photo_file_id: "demo" };
+  },
+  removeAgentPhoto({ id }) { Object.assign(DEMO.agents.find(x => x.id === id), { photo_url: "", photo_file_id: "" }); return { ok: true }; },
+  uploadQuote({ policy_no, name, quote_no, data }) {
+    const p = DEMO.policies.find(x => x.policy_no === policy_no); DEMO.files = DEMO.files || {};
+    const id = "demo-file-" + Date.now(); DEMO.files[id] = { name, data };
+    const fields = { quote_file_id: id, quote_file_name: name, quote_uploaded: isoIn(0), quote_no };
+    Object.assign(p, fields); return { ok: true, fields };
+  },
+  getQuote({ policy_no }) {
+    const p = DEMO.policies.find(x => x.policy_no === policy_no); const f = (DEMO.files || {})[p && p.quote_file_id];
+    if (!f) throw new Error("ไม่พบไฟล์ (โหมดตัวอย่างเก็บไฟล์ไว้ชั่วคราวเท่านั้น)"); return { name: f.name, mime: "application/pdf", data: f.data };
+  },
+  deleteQuote({ policy_no }) {
+    const fields = { quote_file_id: "", quote_file_name: "", quote_uploaded: "", quote_no: "" };
+    Object.assign(DEMO.policies.find(x => x.policy_no === policy_no), fields); return { ok: true, fields };
   },
   closeSale({ policy_no, new_policy_no, patch, payment }) {
     const p = DEMO.policies.find(x => x.policy_no === policy_no);
@@ -886,7 +905,8 @@ async function renderDashboard() {
   const full = await Api.call("agentData", { token: State.session.token });
   if (!full || !full.me) { logout("ไม่พบข้อมูลบัญชีของคุณ กรุณาเข้าสู่ระบบใหม่"); return; }
   let tab = "today", filter = "ทั้งหมด", q = "", editId = null, saleF = "";
-  let agentFilter = { text: "", role: "", onlyInc: false }; // จำคำค้นหาไว้ระหว่างแก้ไขข้อมูล
+  let agentFilter = { text: "", role: "", onlyInc: false };
+  let pendingPhoto = null; // รูปตัวแทนที่เลือกไว้แต่ยังไม่บันทึก (data URL) // จำคำค้นหาไว้ระหว่างแก้ไขข้อมูล
   // หน้ารายละเอียดลูกค้า: custId = ลูกค้าที่เปิดอยู่, form = ฟอร์มที่เปิดอยู่ ("policy" | "pay" | "claim"), formKey = เลขกรมธรรม์ที่แก้/ชำระ
   let custId = null, form = null, formKey = null;
   let rpt = { stage: "", agent: "", q: "" }; // ตัวกรองรายงานใบเสนอ
@@ -1003,6 +1023,16 @@ async function renderDashboard() {
 
       return `<div class="two-col" style="align-items:start">
         <div class="panel" id="agentForm"><h3>${editId ? "แก้ไขข้อมูล " + esc(e.name) : "เพิ่มตัวแทนใหม่"}</h3>
+          <div class="photo-edit">
+            <span id="gPhotoPrev">${avatar(pendingPhoto ? { photo_url: pendingPhoto, name: e.name } : e, "lg")}</span>
+            <div>
+              <div class="btn-row">
+                <label class="btn btn-ghost btn-sm">${e.photo_url || pendingPhoto ? "เปลี่ยนรูป" : "เลือกรูปโปรไฟล์"}<input type="file" accept="image/*" id="gPhoto" class="sr-only"></label>
+                ${pendingPhoto ? `<button class="btn btn-ghost btn-sm" id="gPhotoUndo" type="button">ยกเลิกรูปใหม่</button>` : e.photo_url && editId ? `<button class="btn btn-ghost btn-sm quote-del" id="gPhotoDel" type="button">ลบรูป</button>` : ""}
+              </div>
+              <p class="small muted" style="margin:6px 0 0">${pendingPhoto ? "<b>รูปใหม่ยังไม่ถูกบันทึก</b> กดปุ่มบันทึกด้านล่าง" : "ใช้รูปหน้าตรง ระบบตัดเป็นสี่เหลี่ยมจัตุรัสและย่อขนาดให้อัตโนมัติ"}</p>
+            </div>
+          </div>
           <div class="form" style="max-width:none">
             <label>รหัสตัวแทน FWD (ใช้ล็อกอิน เปลี่ยนภายหลังไม่ได้)<input id="gId" value="${esc(e.id || "")}" ${editId ? "readonly style=\"background:var(--bg)\"" : ""} placeholder="เช่น 185382" autocapitalize="characters"></label>
             <label>ชื่อ-นามสกุล<input id="gName" value="${esc(e.name || "")}"></label>
@@ -1175,6 +1205,7 @@ async function renderDashboard() {
           ${field("หมายเหตุ", esc(p.note))}
         </div>
         ${premTable(p)}
+        ${quoteBox(p)}
         ${form === "close" && formKey === p.policy_no ? closeForm(p) : form === "pay" && formKey === p.policy_no ? payForm(p) : `<div class="btn-row" style="margin-top:12px">
           ${["นำเสนอ", "รออนุมัติ", "ยกเลิก", "ขาดอายุ"].includes(p.status) ? "" : `<button class="btn btn-primary btn-sm" data-pay="${esc(p.policy_no)}">บันทึกการชำระ</button>`}
           ${PENDING.includes(p.status) ? `<button class="btn btn-primary btn-sm" data-close-sale="${esc(p.policy_no)}">ปิดการขาย (กรมธรรม์มีผลบังคับ)</button>` : ""}
@@ -1437,7 +1468,8 @@ async function renderDashboard() {
       const setTable = (p, i, c, pos = i) => { const rs = ridersOf(p), m = MODE_MONTHS[p.mode] || 12, brk = pos > 0 && pos % 2 === 0;
         return `<div class="rp-set ${p.status === "ยกเลิก" ? "is-off" : ""} ${brk ? "pg-break" : ""}">
           ${brk ? `<div class="print-only rp-cont">${leadHead(c, true)}</div>` : ""}
-          <div class="rp-set-head"><div><span class="rp-set-no">${ps_count(c) > 1 ? "ใบเสนอชุดที่ " + (i + 1) + " จาก " + ps_count(c) : "ใบเสนอ"}</span> <span class="small muted">เลขที่ ${esc(p.policy_no)}${p.start_date ? ", เริ่มคุ้มครอง " + thDate(p.start_date) : ""}</span></div>${statusBadge(p.status)}</div>
+          <div class="rp-set-head"><div><span class="rp-set-no">${ps_count(c) > 1 ? "ใบเสนอชุดที่ " + (i + 1) + " จาก " + ps_count(c) : "ใบเสนอ"}</span> <span class="small muted">เลขที่ ${esc(p.policy_no)}${p.start_date ? ", เริ่มคุ้มครอง " + thDate(p.start_date) : ""}</span>
+            ${p.quote_file_id ? `<br><span class="small rp-quote">แนบใบเสนอขาย FWD${p.quote_no ? " เลขที่ " + esc(p.quote_no) : ""}</span> <button class="btn btn-ghost btn-sm no-print rp-quote-btn" type="button" data-quote-open="${esc(p.policy_no)}">เปิดไฟล์</button>` : ""}</div>${p.status !== stageOf(c) ? statusBadge(p.status) : ""}</div>
           <div class="table-wrap"><table class="rp-table">
             <thead><tr><th>สัญญา</th><th>ชื่อแบบประกันภัย</th><th class="num">ทุนประกันภัย</th><th class="num">เบี้ยประกันภัยรายปี</th><th>ระยะเวลาคุ้มครอง</th><th>ระยะเวลาส่งเบี้ย</th></tr></thead>
             <tbody>
@@ -1513,7 +1545,7 @@ async function renderDashboard() {
     }
 
     $("#logout").onclick = logout;
-    bindCalc(); bindCustomer(); bindReport();
+    bindCalc(); bindCustomer(); bindReport(); bindQuotes(full.policies, view);
     app.querySelectorAll("[data-open-report]").forEach(b => b.onclick = () => { rpt = { stage: "", agent: "", q: b.dataset.openReport }; tab = "report"; custId = null; form = null; view(); window.scrollTo({ top: 0 }); });
     app.querySelectorAll("[data-cust]").forEach(b => b.onclick = () => { custId = b.dataset.cust; form = null; formKey = null; view(); window.scrollTo({ top: 0 }); });
     app.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { mode = b.dataset.mode; store.set("dashMode", mode); view(); });
@@ -1527,7 +1559,7 @@ async function renderDashboard() {
       toast("บันทึกว่าตอบแล้ว"); view();
     });
 
-    app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { editId = b.dataset.edit; view(); $("#agentForm")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#gName")?.focus({ preventScroll: true }); });
+    app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { editId = b.dataset.edit; pendingPhoto = null; view(); $("#agentForm")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#gName")?.focus({ preventScroll: true }); });
     const aS = $("#aSearch");
     if (aS) {
       const applyFilter = () => {
@@ -1547,7 +1579,25 @@ async function renderDashboard() {
       aS.oninput = applyFilter; $("#aRole").onchange = applyFilter; $("#aIncomplete").onchange = applyFilter;
       applyFilter();
     }
-    const gc = $("#gCancel"); if (gc) gc.onclick = () => { editId = null; view(); };
+    const gc = $("#gCancel"); if (gc) gc.onclick = () => { editId = null; pendingPhoto = null; view(); };
+    // รูปตัวแทน: เลือก > ดูตัวอย่าง > บันทึกพร้อมข้อมูล
+    const keepForm = () => { // เก็บค่าที่พิมพ์ไว้ก่อนวาดฟอร์มใหม่
+      const ids = ["gId", "gName", "gRole", "gLic", "gYears", "gPhone", "gLine", "gEmail", "gBackup", "gSpec", "gBio"];
+      const vals = Object.fromEntries(ids.map(i => [i, $("#" + i) ? $("#" + i).value : ""])); const duty = $("#gDuty") && $("#gDuty").checked;
+      view(); ids.forEach(i => { if ($("#" + i)) $("#" + i).value = vals[i]; }); if ($("#gDuty")) $("#gDuty").checked = duty;
+    };
+    const gp = $("#gPhoto"); if (gp) gp.onchange = async () => {
+      const f = gp.files[0]; if (!f) return;
+      if (f.size > 15 * 1024 * 1024) return toast("ไฟล์รูปใหญ่เกิน 15 MB", 4000);
+      try { pendingPhoto = await squarePhoto(f); keepForm(); } catch (e2) { toast(e2.message, 4000); }
+    };
+    const gu = $("#gPhotoUndo"); if (gu) gu.onclick = () => { pendingPhoto = null; keepForm(); };
+    const gd = $("#gPhotoDel"); if (gd) gd.onclick = async () => {
+      if (!confirm("ลบรูปโปรไฟล์ของตัวแทนคนนี้?")) return;
+      try { await Api.call("removeAgentPhoto", { token: State.session.token, id: editId });
+        Object.assign(agentById[editId], { photo_url: "", photo_file_id: "" }); State.pub = null; toast("ลบรูปแล้ว"); keepForm();
+      } catch (e2) { toast(e2.message, 4000); }
+    };
     const gs = $("#gSave"); if (gs) gs.onclick = async () => {
       const err = (m) => { $("#gErr").textContent = m; };
       const val = (id) => $(id).value.trim();
@@ -1579,6 +1629,14 @@ async function renderDashboard() {
           const added = { ...agent, has_password: true }; full.agents.push(added); agentById[agent.id] = added;
           toast("เพิ่ม " + agent.name + " แล้ว แจ้งรหัส " + agent.id + " และรหัสผ่านให้ตัวแทนทาง LINE ส่วนตัว", 6000);
         }
+        if (pendingPhoto) {
+          gs.textContent = "กำลังอัปโหลดรูป…";
+          try {
+            const r = await Api.call("uploadAgentPhoto", { token: State.session.token, id: editId || agent.id, data: pendingPhoto.split(",")[1] });
+            Object.assign(agentById[editId || agent.id], { photo_url: r.photo_url, photo_file_id: r.photo_file_id });
+          } catch (e3) { toast("บันทึกข้อมูลแล้ว แต่อัปโหลดรูปไม่สำเร็จ: " + e3.message, 7000); }
+        }
+        pendingPhoto = null;
         State.pub = null; // ให้หน้าเว็บสาธารณะโหลดรายชื่อทีมใหม่
         editId = null; view();
       } catch (e2) { gs.disabled = false; gs.textContent = editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"; err(e2.message); }
@@ -1697,6 +1755,90 @@ async function renderInstall() {
       "ยังขาด: " + miss.slice(0, 8).join(", ") + (miss.length > 8 ? " และอีก " + (miss.length - 8) + " คอลัมน์" : "") + " ให้กด ทีมงาน > อัปเดตโครงสร้างชีต ใน Google Sheet");
   }
   $("#diag").innerHTML = checks.join("");
+}
+
+/* =========================================================
+   ไฟล์ใบเสนอขายจากระบบ FWD (PDF) แนบกับใบเสนอ/กรมธรรม์
+   ไฟล์เก็บในโฟลเดอร์ Google Drive แบบส่วนตัว เปิดได้ผ่านเว็บหลังตรวจสิทธิ์เท่านั้น
+   ========================================================= */
+const QUOTE_MAX_MB = 10;
+const fileToBase64 = (file) => new Promise((res, rej) => {
+  const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("อ่านไฟล์ไม่ได้")); r.readAsDataURL(file);
+});
+function quoteBox(p) {
+  const no = esc(p.policy_no);
+  return `<div class="quote-box" data-quote-box="${no}">
+    ${p.quote_file_id ? `<div class="quote-has">
+        <div><span class="quote-ico" aria-hidden="true">PDF</span>
+          <b>ใบเสนอขายจาก FWD</b>${p.quote_no ? ` เลขที่ ${esc(p.quote_no)}` : ""}<br>
+          <span class="small muted">${esc(p.quote_file_name || "ไฟล์ PDF")}${p.quote_uploaded ? ", แนบเมื่อ " + thDate(p.quote_uploaded) : ""}</span></div>
+        <div class="btn-row"><button class="btn btn-ghost btn-sm" type="button" data-quote-open="${no}">เปิดดู</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-quote-pick="${no}">เปลี่ยนไฟล์</button>
+          <button class="btn btn-ghost btn-sm quote-del" type="button" data-quote-del="${no}">ลบ</button></div>
+      </div>` : `<div class="quote-empty"><span class="small muted">ยังไม่ได้แนบไฟล์ใบเสนอขายจากระบบ FWD</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-quote-pick="${no}">แนบไฟล์ PDF</button></div>`}
+    <div class="quote-form hidden" data-quote-form="${no}">
+      <label>เลขที่ใบเสนอขาย FWD (ถ้ามี)<input data-quote-no value="${esc(p.quote_no || "")}" placeholder="เช่น A256910010001488" autocapitalize="characters"></label>
+      <label>ไฟล์ PDF (ไม่เกิน ${QUOTE_MAX_MB} MB)<input type="file" accept="application/pdf,.pdf" data-quote-file></label>
+      <div class="btn-row"><button class="btn btn-primary btn-sm" type="button" data-quote-up="${no}">อัปโหลด</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-quote-cancel="${no}">ยกเลิก</button></div>
+      <p class="small muted" style="margin:0">ไฟล์มีข้อมูลส่วนตัวของลูกค้า ระบบเก็บไว้ในโฟลเดอร์ส่วนตัวของทีม ไม่มีลิงก์สาธารณะ</p>
+    </div>
+  </div>`;
+}
+async function openQuote(no) {
+  const w = window.open("", "_blank"); // เปิดหน้าต่างก่อน กันเบราว์เซอร์บล็อกป๊อปอัป
+  if (w) w.document.write('<p style="font-family:sans-serif;padding:20px">กำลังเปิดไฟล์ใบเสนอขาย…</p>');
+  try {
+    const r = await Api.call("getQuote", { token: State.session.token, policy_no: no });
+    const bytes = Uint8Array.from(atob(r.data), ch => ch.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: r.mime || "application/pdf" }));
+    if (w) w.location.href = url;
+    else { const a = document.createElement("a"); a.href = url; a.download = r.name || no + ".pdf"; document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 300000);
+  } catch (e) { if (w) w.close(); toast(e.message, 4000); }
+}
+function bindQuotes(policies, rerender) {
+  app.querySelectorAll("[data-quote-open]").forEach(b => b.onclick = () => openQuote(b.dataset.quoteOpen));
+  app.querySelectorAll("[data-quote-pick]").forEach(b => b.onclick = () => {
+    const f = app.querySelector(`[data-quote-form="${CSS.escape(b.dataset.quotePick)}"]`); f.classList.remove("hidden"); f.querySelector("[data-quote-file]").focus();
+  });
+  app.querySelectorAll("[data-quote-cancel]").forEach(b => b.onclick = () => app.querySelector(`[data-quote-form="${CSS.escape(b.dataset.quoteCancel)}"]`).classList.add("hidden"));
+  app.querySelectorAll("[data-quote-up]").forEach(b => b.onclick = async () => {
+    const no = b.dataset.quoteUp, box = app.querySelector(`[data-quote-form="${CSS.escape(no)}"]`);
+    const file = box.querySelector("[data-quote-file]").files[0], quote_no = box.querySelector("[data-quote-no]").value.trim().toUpperCase();
+    if (!file) return toast("เลือกไฟล์ PDF ก่อน");
+    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) return toast("รองรับเฉพาะไฟล์ PDF", 4000);
+    if (file.size > QUOTE_MAX_MB * 1024 * 1024) return toast("ไฟล์ใหญ่เกิน " + QUOTE_MAX_MB + " MB", 4000);
+    b.disabled = true; b.textContent = "กำลังอัปโหลด…";
+    try {
+      const r = await Api.call("uploadQuote", { token: State.session.token, policy_no: no, name: file.name, mime: "application/pdf", quote_no, data: await fileToBase64(file) });
+      const p = policies.find(x => x.policy_no === no); if (p) Object.assign(p, r.fields);
+      toast("แนบไฟล์ใบเสนอขายแล้ว"); rerender();
+    } catch (e) { b.disabled = false; b.textContent = "อัปโหลด"; toast(e.message, 5000); }
+  });
+  app.querySelectorAll("[data-quote-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("ลบไฟล์ใบเสนอขายนี้? (ไฟล์จะถูกย้ายไปถังขยะใน Google Drive)")) return;
+    try {
+      const r = await Api.call("deleteQuote", { token: State.session.token, policy_no: b.dataset.quoteDel });
+      const p = policies.find(x => x.policy_no === b.dataset.quoteDel); if (p) Object.assign(p, r.fields);
+      toast("ลบไฟล์แล้ว"); rerender();
+    } catch (e) { toast(e.message, 4000); }
+  });
+}
+
+/* รูปตัวแทน: ตัดเป็นสี่เหลี่ยมจัตุรัส (เผื่อหน้าอยู่ค่อนบน) และย่อเป็น 400x400 JPEG ก่อนอัปโหลด */
+async function squarePhoto(file, size = 400) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("เปิดรูปนี้ไม่ได้ ลองใช้ไฟล์ JPG หรือ PNG")); i.src = url; });
+    const w = img.naturalWidth, h = img.naturalHeight, side = Math.min(w, h);
+    const sx = (w - side) / 2, sy = h > w ? (h - side) * 0.25 : 0; // รูปแนวตั้ง: ตัดค่อนบนให้เห็นหน้า
+    const cv = document.createElement("canvas"); cv.width = cv.height = size;
+    const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, size, size);
+    cx.imageSmoothingQuality = "high"; cx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+    return cv.toDataURL("image/jpeg", 0.85);
+  } finally { URL.revokeObjectURL(url); }
 }
 
 /* ---------- boot ---------- */
