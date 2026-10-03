@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03m"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03n"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 /* ความยินยอม PDPA: เปลี่ยน CONSENT_VERSION ทุกครั้งที่แก้ข้อความนโยบาย (ต้องตรงกับ Code.gs)
    ลูกค้าจะถูกขอความยินยอมใหม่เมื่อเข้าใช้ครั้งถัดไป */
 const CONSENT_VERSION = "1.0";
@@ -31,11 +31,21 @@ const CONFIG = {
   TEAM_LINE_OA: "https://line.me/R/ti/p/@yourteam",   // LINE OA ของทีม
   TEAM_PHONE: "080-000-0000",
   // ช่องทางชำระเบี้ย: ใส่เฉพาะช่องทางทางการของบริษัท และตรวจสอบลิงก์ให้ถูกต้องก่อนเปิดใช้
+  // แอป FWD Omne (แอปทางการของ FWD): ดูกรมธรรม์ ชำระเบี้ย ยื่นเคลม
+  OMNE: {
+    ios: "https://apps.apple.com/th/app/id1621673678",
+    android: "https://play.google.com/store/apps/details?id=global.fwd.omne",
+    web: "https://www.fwd.co.th/th/omne/1step-registration-support/"
+  },
+  // ช่องทางชำระเบี้ยทางการของ FWD (ตามเอกสารใบเสนอขายของบริษัท) ตรวจสอบให้เป็นปัจจุบันก่อนใช้
   PAYMENT_CHANNELS: [
-    { name: "แอปหรือเว็บไซต์ทางการของบริษัทประกัน", detail: "ชำระด้วยบัตรเครดิต/เดบิต หรือ QR", url: "#" },
-    { name: "หักบัญชีธนาคารหรือบัตรเครดิตอัตโนมัติ", detail: "แจ้งตัวแทนเพื่อขอแบบฟอร์มสมัคร", url: "" },
-    { name: "เคาน์เตอร์ธนาคารหรือเคาน์เตอร์เซอร์วิส", detail: "ใช้ใบแจ้งชำระเบี้ยที่มีบาร์โค้ด", url: "" }
+    { name: "แอป FWD Omne", detail: "ชำระด้วยบัตรเครดิต/เดบิตได้ในไม่กี่ขั้นตอน", url: "omne" },
+    { name: "LINE @fwdthailand เมนู \"ชำระเบี้ยฯ\"", detail: "สร้างบาร์โค้ดเพื่อนำไปชำระที่ธนาคารหรือจุดบริการ", url: "https://line.me/R/ti/p/@fwdthailand" },
+    { name: "สาขาธนาคาร", detail: "ไทยพาณิชย์ กรุงเทพ กรุงศรีอยุธยา กสิกรไทย ออมสิน กรุงไทย ทหารไทยธนชาต ซีไอเอ็มบีไทย ใช้ใบเรียกเก็บหรือบาร์โค้ด", url: "" },
+    { name: "เคาน์เตอร์เซอร์วิส 7-Eleven และโลตัส", detail: "ชำระด้วยเงินสดยอดไม่เกิน 49,000 บาท", url: "" },
+    { name: "สำนักงานใหญ่ หรือบัตรเครดิต", detail: "สอบถามรายละเอียดกับตัวแทนของคุณ", url: "" }
   ],
+
   REMIND_DAYS: 30               // แสดงรายการเบี้ยที่ครบกำหนดภายในกี่วัน
 };
 
@@ -456,6 +466,13 @@ const DemoApi = {
     const c = DEMO.customers.find(x => x.id === p.customer_id); const converted = c && c.type !== "ลูกค้า" && p.status === CLOSED_STATUS;
     if (converted) c.type = "ลูกค้า"; return { ok: true, converted };
   },
+  uploadCustomerPhoto({ token, customer_id, data }) {
+    const id = customer_id || token.replace("demo-", ""); const c = DEMO.customers.find(x => x.id === id);
+    if (!String(c.consent_items || "").split(",").includes("photo")) throw new Error("ลูกค้ายังไม่ได้ยินยอมให้เก็บรูปถ่าย");
+    DEMO.photos = DEMO.photos || {}; DEMO.photos[id] = data; c.photo_file_id = "demo-" + id; return { ok: true, photo_file_id: c.photo_file_id };
+  },
+  getCustomerPhoto({ token, customer_id }) { const id = customer_id || token.replace("demo-", ""); return { data: (DEMO.photos || {})[id] }; },
+  removeCustomerPhoto({ token, customer_id }) { const id = customer_id || token.replace("demo-", ""); DEMO.customers.find(x => x.id === id).photo_file_id = ""; return { ok: true }; },
   uploadAgentPhoto({ id, data }) {
     const a = DEMO.agents.find(x => x.id === id); const photo_url = "data:image/jpeg;base64," + data;
     Object.assign(a, { photo_url, photo_file_id: "demo" }); return { ok: true, photo_url, photo_file_id: "demo" };
@@ -937,6 +954,7 @@ async function renderPortal() {
       <div class="btn-row"><a class="btn btn-ghost btn-sm" href="#/password">เปลี่ยนรหัสผ่าน</a><button class="btn btn-ghost btn-sm" id="logout">ออกจากระบบ</button></div></div>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${tab === k}">${l}</button>`).join("")}</div>
       <div id="tabBody" style="padding-bottom:48px">${portalTab(tab, d, upcoming)}</div></div>`;
+    bindCustomerPhoto(d.me, "", view);
     $("#logout").onclick = logout;
     app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; view(); });
     app.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => { tab = b.dataset.goto; view(); });
@@ -979,11 +997,13 @@ function portalTab(tab, d, upcoming) {
         <div class="kpi"><b>${baht(d.policies.reduce((s, p) => s + Number(p.sum_assured || 0), 0)).replace(" บาท", "")}</b>ทุนประกันรวม (บาท)</div>
         <div class="kpi ${openClaims.length ? "alert" : ""}"><b>${openClaims.length}</b>เคลมที่กำลังดำเนินการ</div>
       </div>
+      ${omneCard(false)}
+      <div class="panel"><h3>ข้อมูลของฉัน</h3>${customerPhotoBlock(d.me, true, "")}</div>
       ${agentBlock}
       ${consentPanel}`;
   }
   if (tab === "policies") {
-    return `<div class="panel"><h3>กรมธรรม์ของคุณ</h3><div class="table-wrap"><table>
+    return `${omneCard(true)}<div class="panel"><h3>กรมธรรม์ของคุณ</h3><div class="table-wrap"><table>
       <thead><tr><th>เลขกรมธรรม์</th><th>แบบประกัน</th><th class="num">ทุนประกัน</th><th class="num">เบี้ยต่องวด (รวมทุกสัญญา)</th><th>งวด</th><th>เริ่มคุ้มครอง</th><th>สถานะ</th></tr></thead>
       <tbody>${d.policies.map(p => `<tr><td>${esc(p.policy_no)}</td><td>${esc(p.plan)}${p.riders ? `<br><span class="small muted">สัญญาเพิ่มเติม: ${esc(p.riders)}</span>` : ""}${p.beneficiary ? `<br><span class="small muted">ผู้รับผลประโยชน์: ${esc(p.beneficiary)}</span>` : ""}${p.coverage_end ? `<br><span class="small muted">คุ้มครองถึง ${thDate(p.coverage_end)}</span>` : ""}</td><td class="num">${baht(p.sum_assured)}</td><td class="num">${baht(installmentTotal(p))}</td><td>${esc(p.mode)}</td><td>${thDate(p.start_date)}</td><td>${statusBadge(p.status)}</td></tr>`).join("") || `<tr><td colspan="7">ยังไม่มีกรมธรรม์ในระบบ</td></tr>`}</tbody>
     </table></div>
@@ -996,13 +1016,13 @@ function portalTab(tab, d, upcoming) {
         <tbody>${d.policies.map(p => { const n = daysUntil(p.next_due); return `<tr><td>${esc(p.policy_no)}<br><span class="small muted">${esc(p.plan)}</span></td><td class="num">${baht(installmentTotal(p))}</td><td>${thDate(p.next_due)}</td><td>${statusBadge(n < 0 ? "เลยกำหนด" : n <= 30 ? "รอชำระ" : "มีผลบังคับ")}</td></tr>`; }).join("")}</tbody></table></div></div>
       <div class="panel"><h3>ช่องทางชำระเบี้ย</h3>
         <div class="notice" style="margin-bottom:14px">ชำระผ่านช่องทางทางการของบริษัทเท่านั้น ทีมงานไม่รับเงินเข้าบัญชีส่วนตัว</div>
-        <ul class="pay-list">${CONFIG.PAYMENT_CHANNELS.map(c => `<li><b>${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>` : esc(c.name)}</b><br><span class="small muted">${esc(c.detail)}</span></li>`).join("")}</ul></div></div>
+        <ul class="pay-list">${CONFIG.PAYMENT_CHANNELS.map(c => `<li><b>${c.url ? `<a href="${esc(c.url === "omne" ? omneUrl() : c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>` : esc(c.name)}</b><br><span class="small muted">${esc(c.detail)}</span></li>`).join("")}</ul></div></div>
       <div class="panel"><h3>ประวัติการชำระ</h3><div class="table-wrap"><table>
         <thead><tr><th>วันที่</th><th>กรมธรรม์</th><th class="num">จำนวน</th><th>ช่องทาง</th><th>สถานะ</th></tr></thead>
         <tbody>${d.payments.map(p => `<tr><td>${thDate(p.date)}</td><td>${esc(p.policy_no)}</td><td class="num">${baht(p.amount)}</td><td>${esc(p.channel)}</td><td>${statusBadge(p.status)}</td></tr>`).join("") || `<tr><td colspan="5">ยังไม่มีประวัติการชำระ</td></tr>`}</tbody></table></div></div>`;
   }
   if (tab === "claims") {
-    return `<div class="panel"><h3>สถานะการเคลม</h3><div class="table-wrap"><table>
+    return `${omneCard(true)}<div class="panel"><h3>สถานะการเคลม</h3><div class="table-wrap"><table>
       <thead><tr><th>วันที่ยื่น</th><th>กรมธรรม์</th><th>ประเภท</th><th class="num">จำนวนเงิน</th><th>สถานะ</th><th>หมายเหตุ</th></tr></thead>
       <tbody>${d.claims.map(c => `<tr><td>${thDate(c.date)}</td><td>${esc(c.policy_no)}</td><td>${esc(c.type)}</td><td class="num">${baht(c.amount)}</td><td>${statusBadge(c.status)}</td><td>${esc(c.note)}</td></tr>`).join("") || `<tr><td colspan="6">ยังไม่มีรายการเคลม ถ้าต้องการยื่นเคลม แจ้งตัวแทนในแท็บ "สอบถาม/แจ้งปัญหา"</td></tr>`}</tbody>
     </table></div></div>`;
@@ -1334,6 +1354,7 @@ async function renderDashboard() {
 
       return `
       <button class="btn btn-ghost btn-sm" id="backList" type="button" style="margin-bottom:16px">กลับไปรายชื่อลูกค้า</button>
+      ${isLead ? "" : `<div class="panel" style="margin-bottom:14px">${customerPhotoBlock(c, true, c.id)}</div>`}
       <div class="cust-head"><div><h2 style="margin:0">${esc(c.name)}</h2>
         <span class="muted small">${[ageFrom(c.birthday) != null ? "อายุ " + ageFrom(c.birthday) + " ปี" : "", c.gender, c.occupation, "ดูแลโดย " + ((agentById[c.agent_id] || {}).name || "-")].filter(Boolean).join(", ")}</span>
         ${isLead ? "" : `<br><span class="small">PDPA: ${c.consent_version ? `<span class="badge b-ok">ให้ความยินยอมแล้ว</span> ${String(c.consent_items || "").split(",").filter(Boolean).map(consentLabel).map(esc).join(", ")}${c.consent_at ? " (" + thDate(String(c.consent_at).slice(0, 10)) + ")" : ""}${!consentOk(c.consent_version) ? " ฉบับเก่า รอให้ความยินยอมใหม่" : ""}` : '<span class="badge b-warn">ยังไม่ได้ให้ความยินยอม</span> ลูกค้าจะถูกขอเมื่อเข้าใช้เว็บครั้งแรก'}${String(c.consent_items || "").includes("marketing") ? "" : (c.consent_version ? ', <b>ไม่รับข่าวสาร</b>' : "")}</span>`}</div>
@@ -1429,6 +1450,7 @@ async function renderDashboard() {
 
     function bindCustomer() {
       const c = custById[custId]; if (!c) return;
+      bindCustomerPhoto(c, c.id, view);
       const tok = State.session.token;
       const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
       $("#backList") && ($("#backList").onclick = () => { custId = null; form = null; view(); });
@@ -1969,6 +1991,70 @@ window.addEventListener("error", (ev) => {
   const l = app && app.querySelector(".loading"); if (!l) return;
   l.innerHTML = `<p class="error">เกิดข้อผิดพลาดในหน้าเว็บ: ${esc(ev.message || "")}</p><button class="btn btn-primary" type="button" onclick="location.reload()">โหลดใหม่</button>`;
 });
+
+/* ลิงก์แอป FWD Omne: เลือกร้านแอปตามเครื่องที่ใช้ (คอมพิวเตอร์ไปหน้าข้อมูลของ FWD) */
+const omneUrl = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) ? CONFIG.OMNE.ios
+  : /android/i.test(navigator.userAgent) ? CONFIG.OMNE.android : CONFIG.OMNE.web;
+function omneCard(compact) {
+  return `<div class="panel omne ${compact ? "omne-compact" : ""}">
+    <div class="omne-head"><span class="omne-ico" aria-hidden="true">Omne</span>
+      <div><h3 style="margin:0">ดูรายละเอียดกรมธรรม์ ชำระเบี้ย และยื่นเคลม ด้วยตัวเองผ่านแอป FWD Omne</h3>
+      <p class="small muted" style="margin:4px 0 0">แอปทางการของ FWD ข้อมูลกรมธรรม์ล่าสุดจากบริษัทโดยตรง ใช้ได้ตลอด 24 ชั่วโมง</p></div></div>
+    ${compact ? "" : `<ol class="omne-steps">
+      <li><b>ดาวน์โหลดแอป</b> "FWD Omne" จาก App Store หรือ Google Play (กดปุ่มด้านล่าง)</li>
+      <li><b>สมัครบริการออนไลน์ลูกค้า FWD</b> ด้วยหมายเลขบัตรประชาชนของผู้เอาประกัน</li>
+      <li><b>เข้าสู่ระบบ</b> แล้วดูกรมธรรม์ทั้งหมด ชำระเบี้ย หรือยื่นเคลมได้ทันที</li>
+    </ol>
+    <ul class="omne-feat"><li>ดูกรมธรรม์และความคุ้มครองทั้งหมดในหน้าเดียว</li><li>ชำระเบี้ยออนไลน์ด้วยบัตร</li><li>ยื่นเคลมและติดตามสถานะ</li></ul>`}
+    <div class="btn-row">
+      <a class="btn btn-primary" href="${esc(omneUrl())}" target="_blank" rel="noopener">เปิด / ดาวน์โหลด FWD Omne</a>
+      ${compact ? "" : `<a class="btn btn-ghost btn-sm" href="${esc(CONFIG.OMNE.ios)}" target="_blank" rel="noopener">App Store</a>
+      <a class="btn btn-ghost btn-sm" href="${esc(CONFIG.OMNE.android)}" target="_blank" rel="noopener">Google Play</a>`}
+    </div>
+    ${compact ? "" : `<p class="small muted" style="margin:10px 0 0">ข้อมูลในเว็บของทีมเป็นข้อมูลที่ตัวแทนบันทึกไว้เพื่อดูแลคุณ ข้อมูลที่เป็นทางการให้ยึดตามแอป FWD Omne และเอกสารของบริษัท ติดปัญหาการสมัครหรือใช้งาน ทักตัวแทนของคุณได้เลย</p>`}
+  </div>`;
+}
+/* รูปถ่ายลูกค้า (เก็บแบบส่วนตัว โหลดผ่านหลังบ้านหลังตรวจสิทธิ์) */
+const custPhotoCache = {};
+async function loadCustomerPhoto(el, customerId) {
+  const key = customerId || "me";
+  try {
+    if (!custPhotoCache[key]) { const r = await Api.call("getCustomerPhoto", { token: State.session.token, customer_id: customerId }); custPhotoCache[key] = "data:image/jpeg;base64," + r.data; }
+    el.innerHTML = `<img src="${custPhotoCache[key]}" alt="">`;
+  } catch {}
+}
+function customerPhotoBlock(c, canUpload, customerId) {
+  const allowed = String(c.consent_items || "").split(",").includes("photo");
+  return `<div class="cphoto" data-cphoto="${esc(customerId || "")}">
+    <span class="ava lg" data-cphoto-img>${esc(initials(c.name))}</span>
+    <div>${!allowed ? `<p class="small muted" style="margin:0">${customerId ? "ลูกค้ายังไม่ได้ยินยอมให้เก็บรูปถ่าย" : 'ต้องการเพิ่มรูปโปรไฟล์ ให้ความยินยอมเรื่อง "รูปถ่ายและสำเนาเอกสาร" ได้ที่ <a href="#/consent">จัดการความยินยอม</a>'}</p>`
+      : canUpload ? `<div class="btn-row"><label class="btn btn-ghost btn-sm">${c.photo_file_id ? "เปลี่ยนรูป" : "เพิ่มรูปถ่าย"}<input type="file" accept="image/*" class="sr-only" data-cphoto-file></label>
+        ${c.photo_file_id ? `<button class="btn btn-ghost btn-sm quote-del" type="button" data-cphoto-del>ลบรูป</button>` : ""}</div>
+        <p class="small muted" style="margin:6px 0 0">รูปเก็บแบบส่วนตัว เห็นเฉพาะ${customerId ? "ลูกค้าและตัวแทนที่ดูแล" : "คุณและตัวแทนที่ดูแล"}</p>` : ""}</div>
+  </div>`;
+}
+function bindCustomerPhoto(c, customerId, rerender) {
+  const box = app.querySelector("[data-cphoto]"); if (!box) return;
+  if (c.photo_file_id) loadCustomerPhoto(box.querySelector("[data-cphoto-img]"), customerId);
+  const f = box.querySelector("[data-cphoto-file]");
+  if (f) f.onchange = async () => {
+    const file = f.files[0]; if (!file) return;
+    if (file.size > 15 * 1024 * 1024) return toast("ไฟล์รูปใหญ่เกิน 15 MB", 4000);
+    toast("กำลังอัปโหลดรูป…", 8000);
+    try {
+      const data = (await squarePhoto(file)).split(",")[1];
+      const r = await Api.call("uploadCustomerPhoto", { token: State.session.token, customer_id: customerId, data });
+      c.photo_file_id = r.photo_file_id; custPhotoCache[customerId || "me"] = "data:image/jpeg;base64," + data;
+      toast("บันทึกรูปแล้ว"); rerender();
+    } catch (e) { toast(e.message, 5000); }
+  };
+  const d = box.querySelector("[data-cphoto-del]");
+  if (d) d.onclick = async () => {
+    if (!confirm("ลบรูปถ่ายนี้?")) return;
+    try { await Api.call("removeCustomerPhoto", { token: State.session.token, customer_id: customerId });
+      c.photo_file_id = ""; delete custPhotoCache[customerId || "me"]; toast("ลบรูปแล้ว"); rerender(); } catch (e) { toast(e.message, 4000); }
+  };
+}
 
 /* ---------- boot ---------- */
 $("#brandName").firstChild.textContent = CONFIG.TEAM_NAME;
