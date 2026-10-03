@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03g"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03h"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 const CONFIG = {
   SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
@@ -1677,9 +1677,11 @@ async function renderInstall() {
   try { swOk = !!(navigator.serviceWorker && await navigator.serviceWorker.getRegistration()); } catch {}
   add(swOk, "Service Worker ทำงาน", "รีเฟรชหน้านี้ 1 ครั้งแล้วตรวจใหม่ ถ้ายังไม่ผ่านให้เช็กว่ามีไฟล์ sw.js");
   if (Api.live()) {
-    let ver = ""; try { State.pub = null; ver = (await loadPublic()).api_version || ""; } catch {}
+    let ver = "", miss = null; try { State.pub = null; const pub = await loadPublic(); ver = pub.api_version || ""; miss = pub.schema_missing; } catch {}
     add(ver >= REQUIRED_API, "หลังบ้าน (Code.gs) เป็นเวอร์ชันล่าสุด" + (ver ? " (" + ver + ")" : ""),
       "วาง Code.gs ล่าสุดใน Apps Script แล้วกด จัดการการทำให้ใช้งานได้ > ไอคอนดินสอ > เวอร์ชันใหม่ > ทำให้ใช้งานได้");
+    if (Array.isArray(miss)) add(!miss.length, "Google Sheet มีคอลัมน์ครบ",
+      "ยังขาด: " + miss.slice(0, 8).join(", ") + (miss.length > 8 ? " และอีก " + (miss.length - 8) + " คอลัมน์" : "") + " ให้กด ทีมงาน > อัปเดตโครงสร้างชีต ใน Google Sheet");
   }
   $("#diag").innerHTML = checks.join("");
 }
