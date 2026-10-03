@@ -1,6 +1,6 @@
 /* Service Worker — ทำให้เว็บติดตั้งเป็นแอปและเปิดได้แม้สัญญาณไม่ดี
    เมื่อแก้ไฟล์เว็บแล้วอัปขึ้น GitHub ให้เปลี่ยนเลข VERSION ทุกครั้ง เพื่อให้มือถือโหลดเวอร์ชันใหม่ */
-const VERSION = "v30";
+const VERSION = "v33";
 const CACHE = "team-web-" + VERSION;
 const SHELL = ["./", "./index.html", "./app.js", "./manifest.json",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "./favicon-32.png", "./logo.jpg", "./hero-bg.jpg"];
