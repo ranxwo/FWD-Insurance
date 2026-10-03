@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03n"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03o"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 /* ความยินยอม PDPA: เปลี่ยน CONSENT_VERSION ทุกครั้งที่แก้ข้อความนโยบาย (ต้องตรงกับ Code.gs)
    ลูกค้าจะถูกขอความยินยอมใหม่เมื่อเข้าใช้ครั้งถัดไป */
 const CONSENT_VERSION = "1.0";
@@ -469,10 +469,10 @@ const DemoApi = {
   uploadCustomerPhoto({ token, customer_id, data }) {
     const id = customer_id || token.replace("demo-", ""); const c = DEMO.customers.find(x => x.id === id);
     if (!String(c.consent_items || "").split(",").includes("photo")) throw new Error("ลูกค้ายังไม่ได้ยินยอมให้เก็บรูปถ่าย");
-    DEMO.photos = DEMO.photos || {}; DEMO.photos[id] = data; c.photo_file_id = "demo-" + id; return { ok: true, photo_file_id: c.photo_file_id };
+    DEMO.photos = DEMO.photos || {}; DEMO.photos[id] = data; c.photo_file_id = "demo-" + id; c.photo_thumb = arguments[0].thumb || ""; return { ok: true, photo_file_id: c.photo_file_id };
   },
   getCustomerPhoto({ token, customer_id }) { const id = customer_id || token.replace("demo-", ""); return { data: (DEMO.photos || {})[id] }; },
-  removeCustomerPhoto({ token, customer_id }) { const id = customer_id || token.replace("demo-", ""); DEMO.customers.find(x => x.id === id).photo_file_id = ""; return { ok: true }; },
+  removeCustomerPhoto({ token, customer_id }) { const id = customer_id || token.replace("demo-", ""); Object.assign(DEMO.customers.find(x => x.id === id), { photo_file_id: "", photo_thumb: "" }); return { ok: true }; },
   uploadAgentPhoto({ id, data }) {
     const a = DEMO.agents.find(x => x.id === id); const photo_url = "data:image/jpeg;base64," + data;
     Object.assign(a, { photo_url, photo_file_id: "demo" }); return { ok: true, photo_url, photo_file_id: "demo" };
@@ -1123,7 +1123,7 @@ async function renderDashboard() {
           </div>
           <div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ประเภท</th><th>สถานะการขาย</th><th class="num">อายุ</th><th>อาชีพ</th><th>เบอร์โทร</th><th>ตัวแทนหลัก</th><th class="num">ใบเสนอ/กรมธรรม์</th><th></th></tr></thead>
           <tbody>${list.map(c => { const age = ageFrom(c.birthday); const n = full.policies.filter(p => p.customer_id === c.id).length;
-            return `<tr><td><b>${esc(c.name)}</b>${c.note ? `<br><span class="small muted">${esc(c.note)}</span>` : ""}</td><td>${statusBadge(c.type)}</td><td>${saleBadge(c, full.policies)}</td><td class="num">${age ?? "-"}</td><td>${esc(c.occupation || "-")}</td>
+            return `<tr><td><div class="cust-name">${custThumb(c)}<div><b>${esc(c.name)}</b>${c.note ? `<br><span class="small muted">${esc(c.note)}</span>` : ""}</div></div></td><td>${statusBadge(c.type)}</td><td>${saleBadge(c, full.policies)}</td><td class="num">${age ?? "-"}</td><td>${esc(c.occupation || "-")}</td>
             <td><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></td><td>${esc((agentById[c.agent_id] || {}).name)}</td><td class="num">${n || "-"}</td>
             <td><button class="btn btn-ghost btn-sm" data-cust="${esc(c.id)}">เปิดข้อมูล</button></td></tr>`; }).join("") || `<tr><td colspan="9">ไม่พบลูกค้าตามเงื่อนไข</td></tr>`}</tbody></table></div></div>
           <div class="panel"><h3>เพิ่มลูกค้ามุ่งหวัง</h3>${profileFields({}, "l")}
@@ -1973,7 +1973,7 @@ function bindQuotes(policies, rerender) {
 }
 
 /* รูปตัวแทน: ตัดเป็นสี่เหลี่ยมจัตุรัส (เผื่อหน้าอยู่ค่อนบน) และย่อเป็น 400x400 JPEG ก่อนอัปโหลด */
-async function squarePhoto(file, size = 400) {
+async function squarePhoto(file, size = 400, quality = 0.85) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("เปิดรูปนี้ไม่ได้ ลองใช้ไฟล์ JPG หรือ PNG")); i.src = url; });
@@ -1982,7 +1982,7 @@ async function squarePhoto(file, size = 400) {
     const cv = document.createElement("canvas"); cv.width = cv.height = size;
     const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, size, size);
     cx.imageSmoothingQuality = "high"; cx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
-    return cv.toDataURL("image/jpeg", 0.85);
+    return cv.toDataURL("image/jpeg", quality);
   } finally { URL.revokeObjectURL(url); }
 }
 
@@ -2014,6 +2014,10 @@ function omneCard(compact) {
     ${compact ? "" : `<p class="small muted" style="margin:10px 0 0">ข้อมูลในเว็บของทีมเป็นข้อมูลที่ตัวแทนบันทึกไว้เพื่อดูแลคุณ ข้อมูลที่เป็นทางการให้ยึดตามแอป FWD Omne และเอกสารของบริษัท ติดปัญหาการสมัครหรือใช้งาน ทักตัวแทนของคุณได้เลย</p>`}
   </div>`;
 }
+/* รูปลูกค้าวงกลมเล็ก (ใช้ภาพย่อที่เก็บไว้ในชีต ไม่ต้องโหลดรูปเต็ม) */
+const custThumb = (c, size = "sm") => c.photo_thumb
+  ? `<span class="ava ${size}"><img src="data:image/jpeg;base64,${esc(c.photo_thumb)}" alt=""></span>`
+  : `<span class="ava ${size}">${esc(initials(c.name))}</span>`;
 /* รูปถ่ายลูกค้า (เก็บแบบส่วนตัว โหลดผ่านหลังบ้านหลังตรวจสิทธิ์) */
 const custPhotoCache = {};
 async function loadCustomerPhoto(el, customerId) {
@@ -2026,7 +2030,7 @@ async function loadCustomerPhoto(el, customerId) {
 function customerPhotoBlock(c, canUpload, customerId) {
   const allowed = String(c.consent_items || "").split(",").includes("photo");
   return `<div class="cphoto" data-cphoto="${esc(customerId || "")}">
-    <span class="ava lg" data-cphoto-img>${esc(initials(c.name))}</span>
+    <span class="ava lg" data-cphoto-img>${c.photo_thumb ? `<img src="data:image/jpeg;base64,${esc(c.photo_thumb)}" alt="">` : esc(initials(c.name))}</span>
     <div>${!allowed ? `<p class="small muted" style="margin:0">${customerId ? "ลูกค้ายังไม่ได้ยินยอมให้เก็บรูปถ่าย" : 'ต้องการเพิ่มรูปโปรไฟล์ ให้ความยินยอมเรื่อง "รูปถ่ายและสำเนาเอกสาร" ได้ที่ <a href="#/consent">จัดการความยินยอม</a>'}</p>`
       : canUpload ? `<div class="btn-row"><label class="btn btn-ghost btn-sm">${c.photo_file_id ? "เปลี่ยนรูป" : "เพิ่มรูปถ่าย"}<input type="file" accept="image/*" class="sr-only" data-cphoto-file></label>
         ${c.photo_file_id ? `<button class="btn btn-ghost btn-sm quote-del" type="button" data-cphoto-del>ลบรูป</button>` : ""}</div>
@@ -2043,8 +2047,9 @@ function bindCustomerPhoto(c, customerId, rerender) {
     toast("กำลังอัปโหลดรูป…", 8000);
     try {
       const data = (await squarePhoto(file)).split(",")[1];
-      const r = await Api.call("uploadCustomerPhoto", { token: State.session.token, customer_id: customerId, data });
-      c.photo_file_id = r.photo_file_id; custPhotoCache[customerId || "me"] = "data:image/jpeg;base64," + data;
+      const thumb = (await squarePhoto(file, 72, 0.7)).split(",")[1]; // ภาพย่อสำหรับรายชื่อลูกค้า
+      const r = await Api.call("uploadCustomerPhoto", { token: State.session.token, customer_id: customerId, data, thumb });
+      c.photo_file_id = r.photo_file_id; c.photo_thumb = thumb; custPhotoCache[customerId || "me"] = "data:image/jpeg;base64," + data;
       toast("บันทึกรูปแล้ว"); rerender();
     } catch (e) { toast(e.message, 5000); }
   };
@@ -2052,7 +2057,7 @@ function bindCustomerPhoto(c, customerId, rerender) {
   if (d) d.onclick = async () => {
     if (!confirm("ลบรูปถ่ายนี้?")) return;
     try { await Api.call("removeCustomerPhoto", { token: State.session.token, customer_id: customerId });
-      c.photo_file_id = ""; delete custPhotoCache[customerId || "me"]; toast("ลบรูปแล้ว"); rerender(); } catch (e) { toast(e.message, 4000); }
+      c.photo_file_id = ""; c.photo_thumb = ""; delete custPhotoCache[customerId || "me"]; toast("ลบรูปแล้ว"); rerender(); } catch (e) { toast(e.message, 4000); }
   };
 }
 
