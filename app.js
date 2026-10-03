@@ -5,7 +5,22 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03j"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03k"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+/* ความยินยอม PDPA: เปลี่ยน CONSENT_VERSION ทุกครั้งที่แก้ข้อความนโยบาย (ต้องตรงกับ Code.gs)
+   ลูกค้าจะถูกขอความยินยอมใหม่เมื่อเข้าใช้ครั้งถัดไป */
+const CONSENT_VERSION = "1.0";
+const CONSENT_ITEMS = [
+  { key: "required", required: true, title: "การใช้ข้อมูลเพื่อดูแลกรมธรรม์ (จำเป็น)",
+    text: "ข้าพเจ้ารับทราบนโยบายความเป็นส่วนตัว และยินยอมให้ทีมเก็บ ใช้ และเปิดเผยข้อมูลส่วนบุคคลและข้อมูลกรมธรรม์ของข้าพเจ้า แก่ตัวแทนในทีมที่ดูแลและบริษัทประกันภัย เพื่อดูแลกรมธรรม์ ติดตามการชำระเบี้ย และให้บริการผ่านเว็บไซต์นี้" },
+  { key: "photo", title: "รูปถ่ายและสำเนาเอกสาร",
+    text: "ยินยอมให้เก็บรูปถ่ายและสำเนาเอกสารของข้าพเจ้า เช่น เอกสารกรมธรรม์ ใบเสร็จ เพื่อประกอบการให้บริการ" },
+  { key: "health", title: "ข้อมูลสุขภาพ (ข้อมูลอ่อนไหว)",
+    text: "ยินยอมให้เก็บและใช้ข้อมูลสุขภาพของข้าพเจ้า เช่น ใบรับรองแพทย์ ผลการรักษา เพื่อช่วยเตรียมเอกสารและติดตามการเคลม" },
+  { key: "marketing", title: "ข่าวสารและสิทธิประโยชน์",
+    text: "ยินยอมรับข่าวสาร สิทธิประโยชน์ และข้อเสนอผลิตภัณฑ์ประกันภัย ทาง LINE หรือโทรศัพท์" }
+];
+const consentLabel = (k) => ({ required: "ดูแลกรมธรรม์", photo: "รูปถ่าย/เอกสาร", health: "ข้อมูลสุขภาพ", marketing: "ข่าวสาร" }[k] || k);
+
 const CONFIG = {
   SHEET_API_URL: "https://script.google.com/macros/s/AKfycbwqXRavOOeke86CwMWUyUBK9q3WhgaAIXKyTL8UstXb1mTyE0m30wz3ACYMlBBMshmv/exec",            // วาง URL Web App ของ Apps Script ที่นี่ เช่น https://script.google.com/macros/s/xxxx/exec
   TEAM_NAME: "ทีมที่ปรึกษาดูแลดี",
@@ -304,6 +319,9 @@ const Api = {
       if (data.error) throw new Error(data.error);
       return data;
     } catch (e) {
+      if (/ให้ความยินยอม/.test(e.message) && State.session && State.session.role === "customer" && !/consent/.test(location.hash)) {
+        State.session.consent_ok = false; sessionStore.set(State.session); location.hash = "#/consent";
+      }
       if (/ตั้งรหัสผ่านใหม่ก่อนใช้งาน/.test(e.message) && State.session) {
         State.session.must_change = true; sessionStore.set(State.session); location.hash = "#/password";
       }
@@ -328,7 +346,7 @@ const DemoApi = {
         return { token: "demo-" + a.id, role: "agent", user_id: a.id, name: a.name };
     } else {
       for (const c of DEMO.customers) if (c.phone === username.replace(/\D/g, "") && c.password && password_hash === await sha256(c.password))
-        return { token: "demo-" + c.id, role: "customer", user_id: c.id, name: c.name, must_change: !!c.must_change };
+        return { token: "demo-" + c.id, role: "customer", user_id: c.id, name: c.name, must_change: !!c.must_change, consent_ok: c.consent_version === CONSENT_VERSION };
     }
     throw new Error("เบอร์โทร/รหัสตัวแทน หรือรหัสผ่านไม่ถูกต้อง");
   },
@@ -336,6 +354,7 @@ const DemoApi = {
     const id = token.replace("demo-", "");
     const me = DEMO.customers.find(c => c.id === id);
     if (!me) throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง");
+    if (me.consent_version !== CONSENT_VERSION) throw new Error("กรุณาให้ความยินยอมก่อนใช้งาน");
     const policies = DEMO.policies.filter(p => p.customer_id === id);
     const nos = policies.map(p => p.policy_no);
     const agent = DEMO.agents.find(a => a.id === me.agent_id);
@@ -386,6 +405,13 @@ const DemoApi = {
     DEMO.customers.push(c); const { password, ...out } = c; return { ok: true, customer: out };
   },
   changePassword({ token, current_hash, new_hash }) { return { ok: true }; },
+  giveConsent({ token, version, items }) {
+    const c = DEMO.customers.find(x => x.id === token.replace("demo-", ""));
+    Object.assign(c, { consent_version: version, consent_items: items.join(","), consent_at: new Date().toISOString() }); return { ok: true };
+  },
+  withdrawConsent({ token }) {
+    const c = DEMO.customers.find(x => x.id === token.replace("demo-", "")); Object.assign(c, { consent_version: "", consent_items: "" }); return { ok: true };
+  },
   logout() { return { ok: true }; },
   updateCustomer({ id, patch, password_hash }) {
     const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) { c.password = "demo"; c.must_change = true; }
@@ -491,7 +517,8 @@ const routes = {
   "portal": renderPortal,
   "dashboard": renderDashboard,
   "install": renderInstall,
-  "password": renderPassword
+  "password": renderPassword,
+  "consent": renderConsent
 };
 
 async function router() {
@@ -728,7 +755,7 @@ function renderLogin() {
       const s = await Api.call("login", { role: useRole, username, password_hash: await sha256(pw) });
       s.username_hint = useRole === "customer" ? username : String(username).toUpperCase();
       State.session = s; sessionStore.set(s); touchActive(); store.set("loginRole", useRole); State.loginNotice = "";
-      location.hash = s.must_change ? "#/password" : s.role === "agent" ? "#/dashboard" : "#/portal";
+      location.hash = s.must_change ? "#/password" : s.role === "agent" ? "#/dashboard" : s.consent_ok === false ? "#/consent" : "#/portal";
     } catch (e) {
       $("#loginErr").textContent = e.message;
       $("#loginBtn").disabled = false; $("#loginBtn").textContent = "เข้าสู่ระบบ";
@@ -757,9 +784,68 @@ const checkIdle = () => {
 ["pointerdown", "keydown", "scroll", "touchstart"].forEach(ev => window.addEventListener(ev, () => { checkIdle(); touchActive(); }, { passive: true }));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkIdle(); });
 setInterval(checkIdle, 60000);
+/* =========================================================
+   ความยินยอม PDPA (ลูกค้า): ขอเมื่อเข้าใช้ครั้งแรก และจัดการ/ถอนได้ทุกเมื่อ
+   ========================================================= */
+function privacyNoticeHtml() {
+  return `<div class="pn">
+    <p><b>ผู้ควบคุมข้อมูลส่วนบุคคล:</b> ${esc(CONFIG.TEAM_NAME)} (${esc(CONFIG.TEAM_SUBTITLE)}) ติดต่อ โทร ${esc(CONFIG.TEAM_PHONE)} หรือ LINE ของทีม</p>
+    <p><b>ข้อมูลที่เก็บ:</b> ชื่อ-นามสกุล เบอร์โทร วันเกิด เพศ อาชีพ รายได้โดยประมาณ ข้อมูลกรมธรรม์ ประวัติการชำระเบี้ย การเคลม และข้อความที่คุณส่งผ่านเว็บไซต์ รวมถึงรูปถ่าย เอกสาร และข้อมูลสุขภาพ เฉพาะเมื่อคุณให้ความยินยอม</p>
+    <p><b>วัตถุประสงค์:</b> ดูแลกรมธรรม์ แจ้งเตือนการชำระเบี้ย ช่วยเหลือเรื่องการเคลม ตอบคำถาม และส่งข่าวสาร (เฉพาะเมื่อยินยอม)</p>
+    <p><b>ผู้รับข้อมูล:</b> ตัวแทนในทีมที่ดูแลคุณ ตัวแทนสำรอง หัวหน้าทีม และบริษัทประกันภัยที่ออกกรมธรรม์ ทีมไม่ขายหรือให้ข้อมูลแก่บุคคลอื่นเพื่อการตลาด</p>
+    <p><b>การเก็บรักษา:</b> เก็บในระบบที่จำกัดสิทธิ์การเข้าถึง ตลอดอายุกรมธรรม์ และอีกไม่เกิน 10 ปีหลังกรมธรรม์สิ้นสุด หรือตามที่กฎหมายกำหนด</p>
+    <p><b>สิทธิของคุณ:</b> ขอเข้าถึงหรือขอสำเนา ขอแก้ไข ขอลบ ขอระงับการใช้ คัดค้าน และถอนความยินยอมได้ทุกเมื่อ (ถอนได้ที่หน้า "ความยินยอมของฉัน") และร้องเรียนต่อสำนักงานคณะกรรมการคุ้มครองข้อมูลส่วนบุคคลได้</p>
+    <p class="small muted">การถอนความยินยอมไม่กระทบการใช้ข้อมูลที่ทำไปก่อนหน้า และไม่กระทบความคุ้มครองตามกรมธรรม์กับบริษัทประกันภัย</p>
+  </div>`;
+}
+async function renderConsent() {
+  const s = State.session;
+  if (!s || s.role !== "customer") { location.hash = "#/login"; return; }
+  if (s.must_change) { location.hash = "#/password"; return; }
+  let cur = null; // ความยินยอมปัจจุบัน (โหมดจัดการ)
+  if (s.consent_ok) { try { cur = (await Api.call("customerData", { token: s.token })).me; } catch { return; } }
+  const given = new Set(String(cur && cur.consent_items || "").split(",").filter(Boolean));
+  const manage = !!s.consent_ok;
+  app.innerHTML = `<section class="block"><div class="wrap article consent">
+    <h1>${manage ? "ความยินยอมของฉัน" : "ก่อนเริ่มใช้งาน"}</h1>
+    <p class="muted">${manage ? `ให้ความยินยอมล่าสุดเมื่อ ${cur && cur.consent_at ? thDateLong(String(cur.consent_at).slice(0, 10)) : "-"} ปรับเปลี่ยนหรือถอนได้ทุกเมื่อ` : `สวัสดี${/^คุณ/.test(s.name || "") ? "" : "คุณ"}${esc(s.name || "")} เพื่อคุ้มครองข้อมูลส่วนบุคคลของคุณตาม พ.ร.บ.คุ้มครองข้อมูลส่วนบุคคล (PDPA) โปรดอ่านและให้ความยินยอมก่อนเข้าดูข้อมูลกรมธรรม์`}</p>
+    <details class="panel" ${manage ? "" : "open"}><summary>นโยบายความเป็นส่วนตัว (ฉบับที่ ${CONSENT_VERSION})</summary>${privacyNoticeHtml()}</details>
+    <div class="panel consent-items">
+      ${CONSENT_ITEMS.map(it => `<label class="consent-item ${it.required ? "is-req" : ""}">
+        <input type="checkbox" data-consent="${it.key}" ${!manage || given.has(it.key) ? (it.required && !manage ? "" : given.has(it.key) ? "checked" : "") : ""}>
+        <span><b>${esc(it.title)}</b>${it.required ? ' <span class="badge b-warn">จำเป็น</span>' : ' <span class="badge b-mute">เลือกได้</span>'}<br><span class="small">${esc(it.text)}</span></span></label>`).join("")}
+    </div>
+    <p class="error" id="cnErr" role="alert"></p>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="cnSave" type="button">${manage ? "บันทึกการเปลี่ยนแปลง" : "ยินยอมและเข้าใช้งาน"}</button>
+      ${manage ? `<a class="btn btn-ghost" href="#/portal">กลับ</a><button class="btn btn-ghost quote-del" id="cnWithdraw" type="button">ถอนความยินยอมทั้งหมด</button>`
+        : `<button class="btn btn-ghost" id="cnDecline" type="button">ไม่ยินยอม</button>`}
+    </div>
+    <p class="small muted" style="margin-top:16px">ข้อความนี้เป็นแบบร่างของทีม ควรให้ฝ่ายกฎหมายหรือฝ่ายกำกับดูแลของบริษัทตรวจสอบก่อนใช้งานจริง</p>
+  </div></section>`;
+  const items = () => [...app.querySelectorAll("[data-consent]")].filter(x => x.checked).map(x => x.dataset.consent);
+  $("#cnSave").onclick = async () => {
+    const sel = items();
+    if (!sel.includes("required")) { $("#cnErr").textContent = manage ? 'ถ้าต้องการถอนความยินยอมข้อที่จำเป็น ให้กด "ถอนความยินยอมทั้งหมด"' : "ต้องให้ความยินยอมข้อแรก (จำเป็น) จึงจะเข้าดูข้อมูลกรมธรรม์ได้"; return; }
+    const btn = $("#cnSave"); btn.disabled = true; btn.textContent = "กำลังบันทึก…";
+    try {
+      await Api.call("giveConsent", { token: s.token, version: CONSENT_VERSION, items: sel });
+      s.consent_ok = true; sessionStore.set(s); toast(manage ? "บันทึกความยินยอมแล้ว" : "ขอบคุณที่ให้ความยินยอม", 3000); location.hash = "#/portal";
+    } catch (e) { btn.disabled = false; btn.textContent = manage ? "บันทึกการเปลี่ยนแปลง" : "ยินยอมและเข้าใช้งาน"; $("#cnErr").textContent = e.message; }
+  };
+  const decline = async (withdraw) => {
+    if (!confirm(withdraw ? "ถอนความยินยอมทั้งหมด? คุณจะเข้าดูข้อมูลกรมธรรม์ผ่านเว็บไม่ได้ จนกว่าจะให้ความยินยอมใหม่ (ความคุ้มครองตามกรมธรรม์ไม่เปลี่ยนแปลง)" : "ไม่ยินยอม? คุณจะยังเข้าดูข้อมูลผ่านเว็บไม่ได้ ติดต่อตัวแทนของคุณได้ตามปกติ")) return;
+    if (withdraw) { try { await Api.call("withdrawConsent", { token: s.token }); } catch (e) { toast(e.message, 4000); return; } }
+    logout(withdraw ? "ถอนความยินยอมแล้ว หากต้องการใช้งานอีกครั้ง เข้าสู่ระบบแล้วให้ความยินยอมใหม่ได้ทุกเมื่อ" : "คุณยังไม่ได้ให้ความยินยอม จึงยังเข้าดูข้อมูลผ่านเว็บไม่ได้ ติดต่อตัวแทนของคุณได้ทาง LINE หรือโทรศัพท์");
+  };
+  if ($("#cnDecline")) $("#cnDecline").onclick = () => decline(false);
+  if ($("#cnWithdraw")) $("#cnWithdraw").onclick = () => decline(true);
+}
+
 function requireRole(role) {
   if (!State.session || State.session.role !== role) { location.hash = "#/login"; return false; }
   if (State.session.must_change) { location.hash = "#/password"; return false; }
+  if (role === "customer" && State.session.consent_ok === false) { location.hash = "#/consent"; return false; }
   return true;
 }
 
@@ -800,7 +886,7 @@ function renderPassword() {
       await Api.call("changePassword", { token: s.token, current_hash: await sha256(cur), new_hash: await sha256(nw) });
       s.must_change = false; sessionStore.set(s);
       toast("เปลี่ยนรหัสผ่านแล้ว ใช้รหัสใหม่ในการเข้าครั้งถัดไป", 4000);
-      location.hash = agent ? "#/dashboard" : "#/portal";
+      location.hash = agent ? "#/dashboard" : s.consent_ok === false ? "#/consent" : "#/portal";
     } catch (e) { btn.disabled = false; btn.textContent = "บันทึกรหัสผ่านใหม่"; err(e.message); }
   };
 }
@@ -847,6 +933,10 @@ function portalTab(tab, d, upcoming) {
   </div>`;
 
   if (tab === "overview") {
+    const cItems = String(d.me.consent_items || "").split(",").filter(Boolean);
+    const consentPanel = `<div class="panel consent-mini"><div><h3 style="margin:0 0 4px">ความยินยอมของฉัน (PDPA)</h3>
+      <p class="small muted" style="margin:0">ให้ความยินยอม: ${cItems.map(k => esc(consentLabel(k))).join(", ") || "-"}${d.me.consent_at ? " เมื่อ " + thDate(String(d.me.consent_at).slice(0, 10)) : ""}</p></div>
+      <a class="btn btn-ghost btn-sm" href="#/consent">จัดการความยินยอม</a></div>`;
     const days = upcoming ? daysUntil(upcoming.next_due) : null;
     const openClaims = d.claims.filter(c => !["อนุมัติ", "ไม่อนุมัติ"].includes(c.status));
     return `
@@ -860,7 +950,8 @@ function portalTab(tab, d, upcoming) {
         <div class="kpi"><b>${baht(d.policies.reduce((s, p) => s + Number(p.sum_assured || 0), 0)).replace(" บาท", "")}</b>ทุนประกันรวม (บาท)</div>
         <div class="kpi ${openClaims.length ? "alert" : ""}"><b>${openClaims.length}</b>เคลมที่กำลังดำเนินการ</div>
       </div>
-      ${agentBlock}`;
+      ${agentBlock}
+      ${consentPanel}`;
   }
   if (tab === "policies") {
     return `<div class="panel"><h3>กรมธรรม์ของคุณ</h3><div class="table-wrap"><table>
@@ -1215,7 +1306,8 @@ async function renderDashboard() {
       return `
       <button class="btn btn-ghost btn-sm" id="backList" type="button" style="margin-bottom:16px">กลับไปรายชื่อลูกค้า</button>
       <div class="cust-head"><div><h2 style="margin:0">${esc(c.name)}</h2>
-        <span class="muted small">${[ageFrom(c.birthday) != null ? "อายุ " + ageFrom(c.birthday) + " ปี" : "", c.gender, c.occupation, "ดูแลโดย " + ((agentById[c.agent_id] || {}).name || "-")].filter(Boolean).join(", ")}</span></div>
+        <span class="muted small">${[ageFrom(c.birthday) != null ? "อายุ " + ageFrom(c.birthday) + " ปี" : "", c.gender, c.occupation, "ดูแลโดย " + ((agentById[c.agent_id] || {}).name || "-")].filter(Boolean).join(", ")}</span>
+        ${isLead ? "" : `<br><span class="small">PDPA: ${c.consent_version ? `<span class="badge b-ok">ให้ความยินยอมแล้ว</span> ${String(c.consent_items || "").split(",").filter(Boolean).map(consentLabel).map(esc).join(", ")}${c.consent_at ? " (" + thDate(String(c.consent_at).slice(0, 10)) + ")" : ""}${c.consent_version !== CONSENT_VERSION ? " ฉบับเก่า รอให้ความยินยอมใหม่" : ""}` : '<span class="badge b-warn">ยังไม่ได้ให้ความยินยอม</span> ลูกค้าจะถูกขอเมื่อเข้าใช้เว็บครั้งแรก'}${String(c.consent_items || "").includes("marketing") ? "" : (c.consent_version ? ', <b>ไม่รับข่าวสาร</b>' : "")}</span>`}</div>
         <div class="rp-lead-side">${statusBadge(c.type)}<span class="small muted">สถานะการขาย</span>${saleBadge(c, full.policies)}</div></div>
 
       ${isLead ? `<div class="panel close-sale"><div><h3 style="margin:0 0 4px">นำเสนอแบบประกัน</h3><p class="muted" style="margin:0">บันทึกใบเสนอได้หลายชุด ระบบออกเลขชั่วคราวให้ เมื่อกรมธรรม์มีผลบังคับ กด "แก้ไข / ปิดการขาย" ที่ใบเสนอนั้น เปลี่ยนสถานะเป็นมีผลบังคับ แล้วใส่เลขกรมธรรม์จริง</p></div>
