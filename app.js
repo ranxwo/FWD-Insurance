@@ -5,7 +5,7 @@
    - ใส่ URL ของ Google Apps Script (ไฟล์ Code.gs) เพื่อดึงข้อมูลจริงจาก Google Sheet
    ========================================================= */
 
-const REQUIRED_API = "2026-10-03k"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
+const REQUIRED_API = "2026-10-03l"; // ต้องตรงกับ CODE_VERSION ใน Code.gs
 /* ความยินยอม PDPA: เปลี่ยน CONSENT_VERSION ทุกครั้งที่แก้ข้อความนโยบาย (ต้องตรงกับ Code.gs)
    ลูกค้าจะถูกขอความยินยอมใหม่เมื่อเข้าใช้ครั้งถัดไป */
 const CONSENT_VERSION = "1.0";
@@ -310,12 +310,24 @@ const Api = {
     try {
       if (!this.live()) return await DemoApi[action](payload);
       // ใช้ text/plain เพื่อหลีกเลี่ยง CORS preflight ของ Apps Script
-      const res = await fetch(CONFIG.SHEET_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, ...payload })
-      });
-      const data = await res.json();
+      // จำกัดเวลารอ: หลังบ้านไม่ตอบใน 40 วินาที ให้แจ้งผู้ใช้แทนการค้างหน้า "กำลังโหลด"
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), action === "uploadQuote" || action === "uploadAgentPhoto" ? 120000 : 40000) : null;
+      let res;
+      try {
+        res = await fetch(CONFIG.SHEET_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action, ...payload }),
+          signal: ctrl ? ctrl.signal : undefined
+        });
+      } catch (netErr) {
+        throw new Error(netErr.name === "AbortError" ? "หลังบ้าน (Google Apps Script) ไม่ตอบสนอง ลองกดโหลดใหม่อีกครั้ง" : "เชื่อมต่อหลังบ้านไม่ได้ ตรวจสอบอินเทอร์เน็ต หรือการ Deploy ของ Apps Script");
+      } finally { if (timer) clearTimeout(timer); }
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw new Error(/<html|<!DOCTYPE/i.test(raw) ? "หลังบ้านตอบกลับเป็นหน้าเว็บของ Google แทนข้อมูล: Apps Script อาจยังไม่ได้อนุญาตสิทธิ์ใหม่ หรือการ Deploy ไม่ได้ตั้งเป็น \"ทุกคน\"" : "ข้อมูลจากหลังบ้านไม่ถูกต้อง"); }
       if (data.error) throw new Error(data.error);
       return data;
     } catch (e) {
@@ -413,6 +425,7 @@ const DemoApi = {
     const c = DEMO.customers.find(x => x.id === token.replace("demo-", "")); Object.assign(c, { consent_version: "", consent_items: "" }); return { ok: true };
   },
   logout() { return { ok: true }; },
+  health() { return { api_version: REQUIRED_API, schema_missing: [] }; },
   updateCustomer({ id, patch, password_hash }) {
     const c = DEMO.customers.find(x => x.id === id); Object.assign(c, patch); if (password_hash) { c.password = "demo"; c.must_change = true; }
     return { ok: true };
@@ -501,10 +514,17 @@ if (CONFIG.SHEET_API_URL && State.session && String(State.session.token).startsW
 }
 const app = $("#app");
 
+/* ข้อมูลหน้าเว็บสาธารณะ (ทีม บทความ คำถาม): แสดงจากที่จำไว้ในเครื่องก่อนทันที แล้วโหลดใหม่เบื้องหลัง */
 async function loadPublic() {
   if (State.pub) return State.pub;
-  State.pub = await Api.call("public");
-  return State.pub;
+  const cached = store.get("pubCache");
+  const fresh = () => Api.call("public").then(d => { State.pub = d; store.set("pubCache", { at: Date.now(), d }); return d; });
+  if (cached && cached.d && Date.now() - cached.at < 24 * 3600000) {
+    State.pub = cached.d;
+    if (Date.now() - cached.at > 60000) fresh().catch(() => {}); // เก่ากว่า 1 นาที: อัปเดตเบื้องหลัง
+    return State.pub;
+  }
+  return fresh();
 }
 
 const routes = {
@@ -527,12 +547,13 @@ async function router() {
   $("#nav").classList.remove("open"); $("#menuBtn").setAttribute("aria-expanded", "false");
   document.querySelectorAll(".nav a").forEach(a => a.toggleAttribute("aria-current", a.getAttribute("href") === "#/" + (path || "")));
   if (a11yNavMember()) {}
+  const slow = setTimeout(() => { const l = app.querySelector(".loading"); if (l && !l.querySelector(".error")) l.innerHTML = "กำลังเชื่อมต่อกับระบบ…<br><span class=\"small\">ครั้งแรกหลังไม่มีการใช้งานสักพัก Google จะใช้เวลาเริ่มระบบ 5-15 วินาที</span>"; }, 4000);
   try {
     app.innerHTML = `<div class="loading">กำลังโหลด…</div>`;
     await fn(param);
   } catch (e) {
-    app.innerHTML = `<div class="wrap loading"><p class="error">${esc(e.message)}</p><a class="btn btn-ghost" href="#/">กลับหน้าแรก</a></div>`;
-  }
+    app.innerHTML = `<div class="wrap loading"><p class="error">${esc(e.message)}</p><div class="btn-row" style="justify-content:center"><button class="btn btn-primary" type="button" onclick="location.reload()">โหลดใหม่</button><a class="btn btn-ghost" href="#/">กลับหน้าแรก</a></div></div>`;
+  } finally { clearTimeout(slow); }
   window.scrollTo(0, 0);
 }
 function a11yNavMember() {
@@ -1687,7 +1708,7 @@ async function renderDashboard() {
     const gd = $("#gPhotoDel"); if (gd) gd.onclick = async () => {
       if (!confirm("ลบรูปโปรไฟล์ของตัวแทนคนนี้?")) return;
       try { await Api.call("removeAgentPhoto", { token: State.session.token, id: editId });
-        Object.assign(agentById[editId], { photo_url: "", photo_file_id: "" }); State.pub = null; toast("ลบรูปแล้ว"); keepForm();
+        Object.assign(agentById[editId], { photo_url: "", photo_file_id: "" }); State.pub = null; store.del("pubCache"); toast("ลบรูปแล้ว"); keepForm();
       } catch (e2) { toast(e2.message, 4000); }
     };
     const gs = $("#gSave"); if (gs) gs.onclick = async () => {
@@ -1729,7 +1750,7 @@ async function renderDashboard() {
           } catch (e3) { toast("บันทึกข้อมูลแล้ว แต่อัปโหลดรูปไม่สำเร็จ: " + e3.message, 7000); }
         }
         pendingPhoto = null;
-        State.pub = null; // ให้หน้าเว็บสาธารณะโหลดรายชื่อทีมใหม่
+        State.pub = null; store.del("pubCache"); // ให้หน้าเว็บสาธารณะโหลดรายชื่อทีมใหม่
         editId = null; view();
       } catch (e2) { gs.disabled = false; gs.textContent = editId ? "บันทึกการแก้ไข" : "เพิ่มตัวแทน"; err(e2.message); }
     };
@@ -1840,7 +1861,9 @@ async function renderInstall() {
   try { swOk = !!(navigator.serviceWorker && await navigator.serviceWorker.getRegistration()); } catch {}
   add(swOk, "Service Worker ทำงาน", "รีเฟรชหน้านี้ 1 ครั้งแล้วตรวจใหม่ ถ้ายังไม่ผ่านให้เช็กว่ามีไฟล์ sw.js");
   if (Api.live()) {
-    let ver = "", miss = null; try { State.pub = null; const pub = await loadPublic(); ver = pub.api_version || ""; miss = pub.schema_missing; } catch {}
+    let ver = "", miss = null, ms = 0;
+    try { const t0 = performance.now(); const h = await Api.call("health"); ms = performance.now() - t0; ver = h.api_version || ""; miss = h.schema_missing; } catch {}
+    if (ms) add(ms < 4000, "หลังบ้านตอบสนองใน " + (ms / 1000).toFixed(1) + " วินาที", "ช้ากว่าปกติ ลองใหม่อีกครั้ง ครั้งแรกหลังไม่ได้ใช้งานนาน Google จะใช้เวลาเริ่มระบบ 2-5 วินาที");
     add(ver >= REQUIRED_API, "หลังบ้าน (Code.gs) เป็นเวอร์ชันล่าสุด" + (ver ? " (" + ver + ")" : ""),
       "วาง Code.gs ล่าสุดใน Apps Script แล้วกด จัดการการทำให้ใช้งานได้ > ไอคอนดินสอ > เวอร์ชันใหม่ > ทำให้ใช้งานได้");
     if (Array.isArray(miss)) add(!miss.length, "Google Sheet มีคอลัมน์ครบ",
@@ -1932,6 +1955,12 @@ async function squarePhoto(file, size = 400) {
     return cv.toDataURL("image/jpeg", 0.85);
   } finally { URL.revokeObjectURL(url); }
 }
+
+/* ถ้ามีข้อผิดพลาดที่ไม่คาดคิด ไม่ให้หน้าเว็บค้างที่ "กำลังโหลด" */
+window.addEventListener("error", (ev) => {
+  const l = app && app.querySelector(".loading"); if (!l) return;
+  l.innerHTML = `<p class="error">เกิดข้อผิดพลาดในหน้าเว็บ: ${esc(ev.message || "")}</p><button class="btn btn-primary" type="button" onclick="location.reload()">โหลดใหม่</button>`;
+});
 
 /* ---------- boot ---------- */
 $("#brandName").firstChild.textContent = CONFIG.TEAM_NAME;
