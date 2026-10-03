@@ -1426,9 +1426,17 @@ async function renderDashboard() {
       const dash = (v) => v ? esc(v) : '<span class="muted">-</span>';
 
       const ps_count = (c) => polsOf(c).length;
-      const setTable = (p, i, c) => { const rs = ridersOf(p), m = MODE_MONTHS[p.mode] || 12;
-        return `<div class="rp-set ${p.status === "ยกเลิก" ? "is-off" : ""}">
-          ${i > 0 ? `<div class="print-only rp-cont">${esc(c.name)} (ต่อ) ใบเสนอชุดที่ ${i + 1}</div>` : ""}
+      // ข้อมูลลูกค้า (หัวการ์ด) ใช้ซ้ำทุกหน้าตอนพิมพ์
+      const leadHead = (c, cont) => { const st = stageOf(c), inc = money(c.monthly_income) * 12, age = ageFrom(c.birthday);
+        return `<header class="rp-lead-head">
+            <div><h3>${esc(c.name)}${cont ? ' <span class="rp-cont-tag">(ต่อ)</span>' : ""}</h3>
+              <p class="small muted">${[age != null ? "อายุ " + age + " ปี" : "", c.gender, c.occupation, inc ? "รายได้ต่อปี " + baht(inc) : "", c.phone].filter(Boolean).map(esc).join("<span class=\"rp-dot\"></span>")}</p></div>
+            <div class="rp-lead-side">${statusBadge(st)}<span class="small muted rp-agent">ตัวแทน ${esc((agentById[c.agent_id] || {}).name || "-")}</span></div>
+          </header>`; };
+      // พิมพ์ 2 ชุดต่อหน้า A4: ชุดที่ 3, 5, ... ขึ้นหน้าใหม่ พร้อมข้อมูลลูกค้าซ้ำที่หัวหน้า
+      const setTable = (p, i, c, pos = i) => { const rs = ridersOf(p), m = MODE_MONTHS[p.mode] || 12, brk = pos > 0 && pos % 2 === 0;
+        return `<div class="rp-set ${p.status === "ยกเลิก" ? "is-off" : ""} ${brk ? "pg-break" : ""}">
+          ${brk ? `<div class="print-only rp-cont">${leadHead(c, true)}</div>` : ""}
           <div class="rp-set-head"><div><span class="rp-set-no">${ps_count(c) > 1 ? "ใบเสนอชุดที่ " + (i + 1) + " จาก " + ps_count(c) : "ใบเสนอ"}</span> <span class="small muted">เลขที่ ${esc(p.policy_no)}${p.start_date ? ", เริ่มคุ้มครอง " + thDate(p.start_date) : ""}</span></div>${statusBadge(p.status)}</div>
           <div class="table-wrap"><table class="rp-table">
             <thead><tr><th>สัญญา</th><th>ชื่อแบบประกันภัย</th><th class="num">ทุนประกันภัย</th><th class="num">เบี้ยประกันภัยรายปี</th><th>ระยะเวลาคุ้มครอง</th><th>ระยะเวลาส่งเบี้ย</th></tr></thead>
@@ -1439,19 +1447,19 @@ async function renderDashboard() {
                 <td class="num">${r.premium ? baht(r.premium) : '<span class="badge b-ok">ฟรี</span>'}</td><td class="muted">ตามสัญญาหลัก</td><td class="muted">ตามสัญญาหลัก</td></tr>`).join("")}
             </tbody>
             <tfoot><tr><th colspan="3">รวมเบี้ยประกันภัยรายปีทั้งชุด</th><th class="num rp-total">${baht(totalAnnual(p))}</th>
-              <th colspan="2" class="small">${m !== 12 ? "ชำระ" + esc(p.mode) + " งวดละ " + baht(installmentTotal(p)) : "ชำระรายปี"}</th></tr></tfoot>
+              <th colspan="2" class="small">${m !== 12 ? "ชำระ" + esc(p.mode) + " งวดละ " + baht(installmentTotal(p)) : "ชำระรายปี"}</th></tr>
+              ${(() => { const inc = money(c.monthly_income) * 12; if (!inc) return "";
+                const pct = totalAnnual(p) / inc * 100;
+                return `<tr class="rp-pct"><td colspan="3">เบี้ยประกันภัยรายปีเทียบกับรายได้ต่อปี (${baht(inc)})</td>
+                  <td class="num"><b>${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</b></td><td colspan="2"><span class="rp-bar"><i style="width:${Math.min(100, pct).toFixed(1)}%"></i></span></td></tr>`; })()}</tfoot>
           </table></div></div>`; };
 
       const leadBlock = (c) => { const st = stageOf(c), ps = polsOf(c), inc = money(c.monthly_income) * 12, best = bestOf(c), age = ageFrom(c.birthday);
         const q = [c.name, c.phone, c.occupation, (agentById[c.agent_id] || {}).name, ...ps.map(p => p.plan + " " + p.policy_no)].join(" ").toLowerCase();
         return `<section class="rp-lead" data-rp data-stage="${esc(st)}" data-agent="${esc(c.agent_id)}" data-q="${esc(q)}">
-          <header class="rp-lead-head">
-            <div><h3>${esc(c.name)}</h3>
-              <p class="small muted">${[age != null ? "อายุ " + age + " ปี" : "", c.gender, c.occupation, inc ? "รายได้ต่อปี " + baht(inc) : "", c.phone].filter(Boolean).map(esc).join("<span class=\"rp-dot\"></span>")}</p></div>
-            <div class="rp-lead-side">${statusBadge(st)}<span class="small muted">ตัวแทน ${esc((agentById[c.agent_id] || {}).name || "-")}</span></div>
-          </header>
-          ${ps.length ? ps.map((p, i) => setTable(p, (setNoOf(p, full.policies) || i + 1) - 1, c)).join("") : `<p class="muted rp-empty">ยังไม่มีใบเสนอ${c.note ? " บันทึก: " + esc(c.note) : ""}</p>`}
-          ${best ? `<div class="rp-lead-foot"><span>เบี้ยประกันภัยรายปีชุดสูงสุดที่อยู่ระหว่างนำเสนอ <b>${baht(best)}</b></span>${inc ? `<span>คิดเป็น <b>${Math.round(best / inc * 100)}%</b> ของรายได้ต่อปี</span>` : ""}</div>` : ""}
+          ${leadHead(c, false)}
+          ${ps.length ? ps.map((p, i) => setTable(p, (setNoOf(p, full.policies) || i + 1) - 1, c, i)).join("") : `<p class="muted rp-empty">ยังไม่มีใบเสนอ${c.note ? " บันทึก: " + esc(c.note) : ""}</p>`}
+          ${ps.length && !inc ? `<p class="small muted rp-lead-foot">ยังไม่มีข้อมูลรายได้ของลูกค้า จึงยังเทียบเบี้ยกับรายได้ไม่ได้ (เพิ่มได้ที่ข้อมูลส่วนตัว)</p>` : ""}
         </section>`; };
 
       return `<div class="rp">
