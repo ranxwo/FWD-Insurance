@@ -112,6 +112,10 @@ const saleBadge = (c, policies) => {
   const extra = c.type === "ลูกค้า" ? policies.filter(p => p.customer_id === c.id && PENDING.includes(p.status)).length : 0;
   return statusBadge(stage) + (extra ? `<br><span class="small muted">ใบเสนอใหม่ ${extra} ชุด</span>` : "");
 };
+/* ลำดับใบเสนอของลูกค้าแต่ละราย (ชุดที่ 1, 2, ...) เรียงตามลำดับที่บันทึก ใช้ตรงกันทั้งหน้าลูกค้าและรายงาน */
+const PROPOSAL_FAMILY = ["นำเสนอ", "รออนุมัติ", "ยกเลิก"];
+const proposalsOf = (customerId, policies) => policies.filter(p => p.customer_id === customerId && PROPOSAL_FAMILY.includes(p.status));
+const setNoOf = (p, policies) => { const i = proposalsOf(p.customer_id, policies).indexOf(p); return i < 0 ? 0 : i + 1; };
 const needsClose = (p, isLead) => PENDING.includes(p.status) || (!p.policy_no && isLead); // ปิดการขาย: เปลี่ยนลูกค้ามุ่งหวังเป็นลูกค้าเมื่อกรมธรรม์มีผลบังคับเท่านั้น
 const MAX_RIDERS = 5;
 /* เลขที่ชั่วคราว: ระบบออกให้อัตโนมัติ TMP-000001, TMP-000002, ... ใช้จนกว่าจะได้เลขกรมธรรม์จริง */
@@ -1156,7 +1160,7 @@ async function renderDashboard() {
 
       const policyCard = (p) => { const n = p.next_due ? daysUntil(p.next_due) : null; const rs = ridersOf(p);
         return `<div class="pol-card ${p.status === "นำเสนอ" ? "is-proposal" : ""}">
-        <div class="pol-head"><div><b>${esc(p.plan)}</b><br><span class="small muted">เลขที่ ${esc(p.policy_no)}</span></div>${statusBadge(p.status)}</div>
+        <div class="pol-head"><div>${setNoOf(p, full.policies) && proposalsOf(c.id, full.policies).length > 1 ? `<span class="set-no">ใบเสนอชุดที่ ${setNoOf(p, full.policies)}</span>` : ""}<b>${esc(p.plan)}</b><br><span class="small muted">เลขที่ ${esc(p.policy_no)}</span></div>${statusBadge(p.status)}</div>
         <div class="pol-grid">
           ${field("ทุนประกันภัย", baht(p.sum_assured))}
           ${field("เบี้ยต่องวด สัญญาหลัก", baht(p.premium) + " " + esc(p.mode || ""))}
@@ -1198,7 +1202,7 @@ async function renderDashboard() {
 
       <div class="panel"><div class="pol-head"><h3 style="margin:0">${isLead ? "ใบเสนอ" : "ประวัติการซื้อประกัน"} (${pols.length} ฉบับ)</h3>
         ${form !== "policy" ? `<button class="btn btn-ghost btn-sm" data-new-pol type="button">${isLead ? "เพิ่มใบเสนอ" : "เพิ่มกรมธรรม์"}</button>` : ""}</div>
-        ${pols.length ? [...pols].sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).map(policyCard).join("") : `<p class="muted" style="margin-top:12px">ยังไม่มีกรมธรรม์</p>`}
+        ${pols.length ? [...proposalsOf(c.id, full.policies), ...pols.filter(x => !PROPOSAL_FAMILY.includes(x.status)).sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))].map(policyCard).join("") : `<p class="muted" style="margin-top:12px">ยังไม่มีกรมธรรม์</p>`}
       </div>
 
       <div class="two-col" style="align-items:start">
@@ -1421,10 +1425,11 @@ async function renderDashboard() {
       const sorted = [...leads].sort((a, b) => order[stageOf(a)] - order[stageOf(b)] || bestOf(b) - bestOf(a));
       const dash = (v) => v ? esc(v) : '<span class="muted">-</span>';
 
+      const ps_count = (c) => polsOf(c).length;
       const setTable = (p, i, c) => { const rs = ridersOf(p), m = MODE_MONTHS[p.mode] || 12;
         return `<div class="rp-set ${p.status === "ยกเลิก" ? "is-off" : ""}">
           ${i > 0 ? `<div class="print-only rp-cont">${esc(c.name)} (ต่อ) ใบเสนอชุดที่ ${i + 1}</div>` : ""}
-          <div class="rp-set-head"><div><span class="rp-set-no">ชุดที่ ${i + 1}</span> <span class="small muted">เลขที่ ${esc(p.policy_no)}${p.start_date ? ", เริ่มคุ้มครอง " + thDate(p.start_date) : ""}</span></div>${statusBadge(p.status)}</div>
+          <div class="rp-set-head"><div><span class="rp-set-no">${ps_count(c) > 1 ? "ใบเสนอชุดที่ " + (i + 1) + " จาก " + ps_count(c) : "ใบเสนอ"}</span> <span class="small muted">เลขที่ ${esc(p.policy_no)}${p.start_date ? ", เริ่มคุ้มครอง " + thDate(p.start_date) : ""}</span></div>${statusBadge(p.status)}</div>
           <div class="table-wrap"><table class="rp-table">
             <thead><tr><th>สัญญา</th><th>ชื่อแบบประกันภัย</th><th class="num">ทุนประกันภัย</th><th class="num">เบี้ยประกันภัยรายปี</th><th>ระยะเวลาคุ้มครอง</th><th>ระยะเวลาส่งเบี้ย</th></tr></thead>
             <tbody>
@@ -1445,7 +1450,7 @@ async function renderDashboard() {
               <p class="small muted">${[age != null ? "อายุ " + age + " ปี" : "", c.gender, c.occupation, inc ? "รายได้ต่อปี " + baht(inc) : "", c.phone].filter(Boolean).map(esc).join("<span class=\"rp-dot\"></span>")}</p></div>
             <div class="rp-lead-side">${statusBadge(st)}<span class="small muted">ตัวแทน ${esc((agentById[c.agent_id] || {}).name || "-")}</span></div>
           </header>
-          ${ps.length ? ps.map((p, i) => setTable(p, i, c)).join("") : `<p class="muted rp-empty">ยังไม่มีใบเสนอ${c.note ? " บันทึก: " + esc(c.note) : ""}</p>`}
+          ${ps.length ? ps.map((p, i) => setTable(p, (setNoOf(p, full.policies) || i + 1) - 1, c)).join("") : `<p class="muted rp-empty">ยังไม่มีใบเสนอ${c.note ? " บันทึก: " + esc(c.note) : ""}</p>`}
           ${best ? `<div class="rp-lead-foot"><span>เบี้ยประกันภัยรายปีชุดสูงสุดที่อยู่ระหว่างนำเสนอ <b>${baht(best)}</b></span>${inc ? `<span>คิดเป็น <b>${Math.round(best / inc * 100)}%</b> ของรายได้ต่อปี</span>` : ""}</div>` : ""}
         </section>`; };
 
